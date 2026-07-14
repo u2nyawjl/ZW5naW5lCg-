@@ -9,7 +9,7 @@ import imaplib
 import smtplib
 from dataclasses import dataclass, field
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 
 
 @dataclass
@@ -25,6 +25,11 @@ class Message:
     subject: str
     body: str
     attachments: list[Attachment] = field(default_factory=list)
+    from_name: str = ""
+    # (nombre, correo) de To + Cc de la cabecera. OJO: en un correo reenviado los
+    # destinatarios ORIGINALES no están aquí sino dentro del cuerpo citado.
+    recipients: list[tuple[str, str]] = field(default_factory=list)
+    message_id: str = ""
 
 
 class EmailClient:
@@ -93,8 +98,10 @@ class EmailClient:
     @staticmethod
     def _parse(uid: str, raw: bytes) -> Message:
         msg = email.message_from_bytes(raw)
-        _, sender = parseaddr(msg.get("From", ""))
+        from_name, sender = parseaddr(msg.get("From", ""))
         subject = str(email.header.make_header(email.header.decode_header(msg.get("Subject", ""))))
+        recipients = getaddresses(msg.get_all("To", []) + msg.get_all("Cc", []))
+        message_id = (msg.get("Message-ID", "") or "").strip()
 
         body = ""
         attachments: list[Attachment] = []
@@ -111,7 +118,9 @@ class EmailClient:
                 if filename and payload:
                     attachments.append(Attachment(filename=filename, content=payload))
 
-        return Message(uid=uid, sender=sender, subject=subject, body=body, attachments=attachments)
+        return Message(uid=uid, sender=sender, subject=subject, body=body,
+                       attachments=attachments, from_name=from_name,
+                       recipients=recipients, message_id=message_id)
 
     async def fetch(self, label: str = "", unread_only: bool = True) -> list[Message]:
         return await asyncio.to_thread(self._fetch_sync, label, unread_only)

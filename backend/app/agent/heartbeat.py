@@ -29,7 +29,7 @@ from app.integrations.firestore import FirestoreClient
 from app.integrations.github import GitHubClient
 from app.integrations.google import GoogleClient
 from app.security.virustotal import VirusTotalClient
-from app.vault import manifest, timeline
+from app.vault import manifest, people, timeline
 
 
 @dataclass
@@ -96,7 +96,9 @@ async def beat() -> int:
         pulse.events.extend(pulse.intake.events)
         pulse.errors.extend(pulse.intake.errors)
         print(f"✅ Ingesta  · {pulse.intake.processed} correos, "
-              f"{pulse.intake.relevant} relevantes, {pulse.intake.files_stored} archivos")
+              f"{pulse.intake.relevant} relevantes, {pulse.intake.files_stored} archivos, "
+              f"{pulse.intake.people_new} personas nuevas, "
+              f"{len(pulse.intake.events_created)} eventos")
     except Exception as exc:
         pulse.errors.append(f"ingesta: {type(exc).__name__}: {exc}")
         print(f"❌ Ingesta  · {exc}")
@@ -184,6 +186,10 @@ async def _mirror_to_firestore(settings, pulse: Pulse, vault: GitHubClient) -> N
         files = await manifest.load(vault)
         await fs.set("files/current", {"items": files[:100],
                                        "at": pulse.at.isoformat(timespec="seconds")})
+        # Base de datos de personas.
+        directory = await people.load(vault)
+        await fs.set("people/current", {"items": people.as_list(directory)[:500],
+                                        "at": pulse.at.isoformat(timespec="seconds")})
         # Timeline: cada evento es un documento append-only.
         for ev in pulse.events:
             await fs.add("timeline", ev)
@@ -210,7 +216,10 @@ def _render_report(pulse: Pulse) -> tuple[str, str]:
 
     body = [f"Estado · {pulse.at:%Y-%m-%d %H:%M} UTC ({pulse.trigger})", ""]
     body.append(f"Correo relevante: {pulse.intake.relevant}/{pulse.intake.processed}   "
-                f"Archivos: {pulse.intake.files_stored}   Tareas: {len(pulse.tasks)}")
+                f"Archivos: {pulse.intake.files_stored}   Tareas: {len(pulse.tasks)}   "
+                f"Personas nuevas: {pulse.intake.people_new}")
+    if pulse.intake.events_created:
+        body += ["", "Agendado en el calendario:"] + [f"  📅 {e}" for e in pulse.intake.events_created]
     if pulse.reminders_sent:
         body += ["", "Recordatorios:"] + [f"  ⏰ {r}" for r in pulse.reminders_sent]
     if pulse.intake.notes:

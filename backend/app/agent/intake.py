@@ -13,11 +13,13 @@ El correo se trata como dato no confiable de principio a fin: el LLM tiene prohi
 obedecer instrucciones que vengan dentro de un mensaje.
 """
 
+import hashlib
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from app.agent import contacts
 from app.agent.brain import Brain
 from app.comms.email import EmailClient, Message
 from app.core.events import Level, log_event
@@ -26,7 +28,7 @@ from app.integrations.google import GoogleClient
 from app.security.models import Decision
 from app.security.pipeline import ingest_file
 from app.security.virustotal import VirusTotalClient
-from app.vault import manifest, timeline
+from app.vault import manifest, people, timeline
 
 
 @dataclass
@@ -35,6 +37,9 @@ class IntakeResult:
     relevant: int = 0
     files_stored: int = 0
     files_blocked: int = 0
+    people_new: int = 0
+    people_seen: int = 0
+    events_created: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)  # para el timeline durable
@@ -43,6 +48,34 @@ class IntakeResult:
 def _slug(text: str, maxlen: int = 40) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return (s[:maxlen] or "sin-asunto").strip("-")
+
+
+def _clean_title(subject: str, maxlen: int = 72) -> str:
+    """Título de correo legible para el nombre de la nota: sin 'Re:/Fwd:' ni caracteres de ruta."""
+    s = re.sub(r"^(?:(?:re|fwd|fw|rv)\s*:\s*)+", "", subject.strip(), flags=re.I)
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return (s[:maxlen].strip() or "sin-asunto")
+
+
+def _short_id(msg: Message) -> str:
+    """Id corto y estable por correo (para no pisar dos correos de igual asunto)."""
+    basis = msg.message_id or f"{msg.sender}|{msg.subject}"
+    return hashlib.sha1(basis.encode()).hexdigest()[:6]
+
+
+def _inbox_path(msg: Message) -> str:
+    return f"inbox/{_clean_title(msg.subject)} · {_short_id(msg)}.md"
+
+
+def _parse_dt(raw: str) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 async def process_inbox(
@@ -96,6 +129,51 @@ async def _process_one(
     now = datetime.now(timezone.utc)
     stored_files: list[dict] = []
 
+    # Personas del correo (remitente, destinatarios, lista citada de un reenvío) →
+    # base de datos de personas de la bóveda.
+    found = contacts.extract_people(msg, own_address=settings.gmail_address)
+    if found:
+        try:
+            new, _seen, _lst = await people.merge(vault, found, source=msg.subject[:60])
+            result.people_new += new
+            result.people_seen += len(found)
+            if new:
+                result.events.append(timeline.event(
+                    "people.added", f"{new} persona(s) nueva(s) desde: {msg.subject[:50]}",
+                    total=len(found),
+                ))
+        except Exception as exc:
+            result.errors.append(f"personas: {type(exc).__name__}: {exc}")
+
+    # ¿Agenda una cita concreta? → evento en el Calendar del agente.
+    try:
+        ev = await brain.extract_event(
+            msg.sender, msg.subject, msg.body, now.isoformat(timespec="seconds"), settings.tz
+        )
+    except Exception:
+        ev = None
+    if ev:
+        start = _parse_dt(ev["start"])
+        end = _parse_dt(ev["end"]) or (start + timedelta(hours=1) if start else None)
+        if start and end:
+            desc = (ev["notes"] or verdict["summary"]).strip()
+            try:
+                await google.create_event(
+                    ev["title"], start, end,
+                    description=f"{desc}\n\n(Detectado en correo de {msg.sender})".strip(),
+                    location=ev["location"], all_day=ev["all_day"],
+                )
+                result.events_created.append(f"{ev['title']} · {start:%Y-%m-%d %H:%M}")
+                result.events.append(timeline.event(
+                    "calendar.created",
+                    f"Evento agendado: {ev['title']} ({start:%Y-%m-%d %H:%M})",
+                    when=start.isoformat(timespec="minutes"),
+                ))
+            except Exception as exc:
+                result.events.append(timeline.event(
+                    "calendar.error", f"No pude agendar «{ev['title']}»: {exc}", level="warn",
+                ))
+
     docs_folder = await google.ensure_folder("documentos")
 
     for att in msg.attachments:
@@ -143,7 +221,7 @@ async def _process_one(
         await manifest.add(vault, entry)
         stored_files.append(entry)
 
-    inbox_note = f"inbox/{now:%Y-%m-%d}-{_slug(msg.subject)}.md"
+    inbox_note = _inbox_path(msg)
     await vault.write_note(
         inbox_note, _render_inbox_note(msg, verdict, stored_files, now),
         f"inbox: {msg.subject[:50]}",

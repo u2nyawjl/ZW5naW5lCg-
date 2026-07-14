@@ -57,6 +57,10 @@ export interface CalEvent {
   id: string; summary: string; start: string; end: string;
   all_day: boolean; location: string; link: string;
 }
+export interface Person {
+  email: string; name: string; role: string;
+  first_seen?: string; last_seen?: string; sources?: string[];
+}
 
 export const api = {
   status: () => req<StatusResp>("/api/status"),

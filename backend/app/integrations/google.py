@@ -8,7 +8,7 @@ archivos que subas tú a mano — los documentos entran por correo, no por Drive
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 
@@ -148,7 +148,16 @@ class GoogleClient:
         end: datetime,
         description: str = "",
         location: str = "",
+        all_day: bool = False,
     ) -> dict:
+        if all_day:
+            # Google usa fecha de fin EXCLUSIVA en eventos de día completo.
+            start_field = {"date": start.date().isoformat()}
+            end_day = end.date() if end.date() > start.date() else start.date() + timedelta(days=1)
+            end_field = {"date": end_day.isoformat()}
+        else:
+            start_field = {"dateTime": start.isoformat()}
+            end_field = {"dateTime": end.isoformat()}
         resp = await self._request(
             "POST",
             f"{CALENDAR_API}/calendars/{self.calendar_id}/events",
@@ -156,8 +165,8 @@ class GoogleClient:
                 "summary": summary,
                 "description": description,
                 "location": location,
-                "start": {"dateTime": start.isoformat()},
-                "end": {"dateTime": end.isoformat()},
+                "start": start_field,
+                "end": end_field,
             },
         )
         return resp.json()

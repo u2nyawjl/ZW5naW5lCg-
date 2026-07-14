@@ -7,16 +7,18 @@ import { Timeline } from "./views/Timeline";
 import { Vault } from "./views/Vault";
 import { Files } from "./views/Files";
 import { Calendar } from "./views/Calendar";
+import { Personas } from "./views/Personas";
 
 interface StatusDoc {
   agent_core: string; honeypot: string; trigger: string; at: string;
 }
 
-type View = "vault" | "files" | "calendar";
+type View = "vault" | "files" | "personas" | "calendar";
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "vault", label: "Bóveda" },
   { id: "files", label: "Archivos" },
+  { id: "personas", label: "Personas" },
   { id: "calendar", label: "Calendario" },
 ];
 
@@ -123,6 +125,7 @@ export function App() {
         <div className="main">
           {view === "vault" && <Vault />}
           {view === "files" && <Files />}
+          {view === "personas" && <Personas />}
           {view === "calendar" && <Calendar />}
         </div>
         <aside className="rail"><Timeline /></aside>
