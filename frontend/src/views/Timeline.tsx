@@ -17,26 +17,28 @@ function icon(type: string): string {
 export function Timeline() {
   // En vivo desde Firestore: el heartbeat escribe y esto se actualiza solo.
   const events = useCollection<LogEvent>("timeline", "ts", 100);
-  const loading = events.length === 0;
 
   return (
     <div className="panel">
       <div className="panel-header">
-        <span className="accent">Bitácora de eventos</span>
+        <span className="accent">Bitácora</span>
         <span className="live"><span className="dot on" />EN VIVO</span>
       </div>
       <div className="panel-body">
-        {loading && <div className="empty">Cargando…</div>}
-        {!loading && events.length === 0 && <div className="empty">Sin eventos aún.</div>}
-        {events.map((e, i) => (
-          <div key={i} className={`log ${e.level}`}>
-            <span className="t">[{e.ts.slice(11, 19)}]</span>
-            <span className="ico">{icon(e.type)}</span>
-            <span className="msg">
-              {e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.message}</a> : e.message}
-            </span>
-          </div>
-        ))}
+        {events.length === 0 && <div className="empty">Esperando el primer latido…</div>}
+        <div className="vrail">
+          {events.map((e, i) => (
+            <div key={i} className={`vrail-item ${e.level}`}>
+              <div className="vrail-node">{icon(e.type)}</div>
+              <div className="vrail-body">
+                <div className="vrail-time">{e.ts.slice(11, 19)}</div>
+                <div className="vrail-msg">
+                  {e.url ? <a href={e.url} target="_blank" rel="noreferrer">{e.message}</a> : e.message}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -118,7 +118,19 @@ a:hover { color: #9df0ff; }
   box-shadow: inset 0 -2px 0 0 var(--violet);
 }
 
-.main { flex: 1; overflow: hidden; padding: 16px 20px 20px; }
+/* Espacio de trabajo: bitácora fija a la izquierda + vista elegida a la derecha. */
+.workspace {
+  flex: 1; display: flex; gap: 16px; padding: 16px 20px 20px;
+  overflow: hidden; min-height: 0;
+}
+.rail { width: 300px; flex-shrink: 0; height: 100%; }
+.main { flex: 1; height: 100%; overflow: hidden; min-height: 0; }
+
+@media (max-width: 900px) {
+  .workspace { flex-direction: column; overflow: auto; }
+  .rail { width: 100%; height: 280px; }
+  .main { height: auto; min-height: 420px; }
+}
 
 /* Paneles de vidrio */
 .panel {
@@ -143,15 +155,31 @@ a:hover { color: #9df0ff; }
 
 .live { font-size: 10.5px; color: var(--emerald); display: flex; align-items: center; letter-spacing: 1px; }
 
-/* Timeline */
-.log { display: flex; gap: 10px; padding: 6px 8px; align-items: baseline; border-radius: 8px; }
-.log:hover { background: rgba(157, 139, 255, 0.06); }
-.log .t { color: var(--faint); font-family: var(--mono); font-size: 11px; }
-.log .ico { font-size: 14px; width: 20px; text-align: center; }
-.log .msg { color: var(--text); }
-.log.info .msg { color: #c9cbe8; }
-.log.warn .msg { color: var(--amber); }
-.log.alert .msg, .log.critical .msg { color: var(--rose); font-weight: 600; }
+/* Bitácora vertical: espina con nodos luminosos. */
+.vrail { position: relative; padding: 4px 2px 2px; }
+.vrail-item { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }
+/* Línea que conecta un nodo con el siguiente. */
+.vrail-item::before {
+  content: ""; position: absolute; left: 12px; top: 24px; bottom: -2px; width: 2px;
+  background: linear-gradient(180deg, rgba(157, 139, 255, 0.55), rgba(95, 220, 255, 0.15));
+}
+.vrail-item:last-child { padding-bottom: 2px; }
+.vrail-item:last-child::before { display: none; }
+.vrail-node {
+  position: relative; z-index: 1; flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; background: rgba(12, 14, 34, 0.95);
+  border: 1px solid var(--border-lit); box-shadow: 0 0 10px rgba(157, 139, 255, 0.45);
+}
+.vrail-body { padding-top: 2px; min-width: 0; }
+.vrail-time { font-family: var(--mono); font-size: 10px; color: var(--faint); letter-spacing: 0.5px; }
+.vrail-msg { font-size: 11.5px; line-height: 1.45; color: #c9cbe8; word-break: break-word; }
+.vrail-item.warn .vrail-node { border-color: var(--amber); box-shadow: 0 0 10px rgba(255, 212, 121, 0.5); }
+.vrail-item.warn .vrail-msg { color: var(--amber); }
+.vrail-item.alert .vrail-node, .vrail-item.critical .vrail-node {
+  border-color: var(--rose); box-shadow: 0 0 12px rgba(255, 122, 153, 0.6);
+}
+.vrail-item.alert .vrail-msg, .vrail-item.critical .vrail-msg { color: var(--rose); font-weight: 600; }
 
 /* Árbol de la bóveda */
 .tree { list-style: none; padding: 0; margin: 0; font-size: 12.5px; }
@@ -172,16 +200,31 @@ a:hover { color: #9df0ff; }
 .hashbar .hashlabel { color: var(--amber); font-weight: 600; letter-spacing: 1px; white-space: nowrap; }
 .hashbar code { color: var(--muted); background: none; }
 
-.markdown { line-height: 1.7; color: #d7d8ee; }
-.markdown h1 { font-size: 20px; font-weight: 650; color: #fff; margin-top: 0; }
-.markdown h2 { font-size: 15px; color: var(--cyan); }
-.markdown code { background: rgba(157, 139, 255, 0.14); padding: 2px 6px; border-radius: 5px; color: var(--violet); font-family: var(--mono); font-size: 0.9em; }
-.markdown pre { background: rgba(5, 6, 15, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow-x: auto; }
-.markdown pre code { background: none; color: #b8bae0; padding: 0; }
-.markdown a { border-bottom: 1px solid rgba(95, 220, 255, 0.3); }
+/* Panel de lectura de la nota: superficie cálida "sunset" tipo Anthropic (papel al atardecer). */
+.markdown {
+  line-height: 1.75; color: #423a2f; font-size: 13.5px;
+  background: linear-gradient(165deg, #fbf3e8 0%, #f6e6d3 55%, #f2dcc5 100%);
+  border: 1px solid rgba(193, 95, 60, 0.22); border-radius: 14px; padding: 22px 26px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 12px 34px rgba(0, 0, 0, 0.38);
+}
+.markdown h1 { font-size: 21px; font-weight: 680; color: #362c20; margin-top: 0; letter-spacing: -0.2px; }
+.markdown h2 { font-size: 15.5px; font-weight: 650; color: #bf5a34; }
+.markdown h3 { font-size: 13.5px; color: #a8502f; }
+.markdown strong { color: #2f2921; }
+.markdown code {
+  background: rgba(193, 95, 60, 0.13); padding: 2px 6px; border-radius: 5px;
+  color: #a5482a; font-family: var(--mono); font-size: 0.88em;
+}
+.markdown pre { background: #2b2420; border: 1px solid rgba(0, 0, 0, 0.25); border-radius: 10px; padding: 12px; overflow-x: auto; }
+.markdown pre code { background: none; color: #e9d9c4; padding: 0; }
+.markdown a { color: #c15f3c; border-bottom: 1px solid rgba(193, 95, 60, 0.4); }
+.markdown a:hover { color: #9f4526; }
 .markdown table { border-collapse: collapse; width: 100%; }
-.markdown td, .markdown th { border: 1px solid var(--border); padding: 6px 10px; }
-.markdown blockquote { border-left: 3px solid var(--violet); margin: 0; padding-left: 14px; color: var(--muted); }
+.markdown td, .markdown th { border: 1px solid rgba(120, 90, 60, 0.25); padding: 6px 10px; }
+.markdown th { background: rgba(193, 95, 60, 0.09); color: #6a4a34; }
+.markdown blockquote { border-left: 3px solid #c15f3c; margin: 0; padding-left: 14px; color: #715a44; }
+.markdown hr { border: none; border-top: 1px solid rgba(120, 90, 60, 0.2); margin: 16px 0; }
+.markdown ul, .markdown ol { padding-left: 22px; }
 
 /* Tablas */
 table.grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }

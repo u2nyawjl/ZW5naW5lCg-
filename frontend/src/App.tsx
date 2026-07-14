@@ -12,10 +12,9 @@ interface StatusDoc {
   agent_core: string; honeypot: string; trigger: string; at: string;
 }
 
-type View = "timeline" | "vault" | "files" | "calendar";
+type View = "vault" | "files" | "calendar";
 
 const VIEWS: { id: View; label: string }[] = [
-  { id: "timeline", label: "Timeline" },
   { id: "vault", label: "Bóveda" },
   { id: "files", label: "Archivos" },
   { id: "calendar", label: "Calendario" },
@@ -95,7 +94,7 @@ function logout() {
 export function App() {
   const [authed, setAuthed] = useState(false);
   const [booting, setBooting] = useState(!!getToken());
-  const [view, setView] = useState<View>("timeline");
+  const [view, setView] = useState<View>("vault");
 
   // Al recargar, se reestablece la sesión Firebase con el token guardado.
   useEffect(() => {
@@ -120,11 +119,13 @@ export function App() {
           </button>
         ))}
       </div>
-      <div className="main">
-        {view === "timeline" && <Timeline />}
-        {view === "vault" && <Vault />}
-        {view === "files" && <Files />}
-        {view === "calendar" && <Calendar />}
+      <div className="workspace">
+        <aside className="rail"><Timeline /></aside>
+        <div className="main">
+          {view === "vault" && <Vault />}
+          {view === "files" && <Files />}
+          {view === "calendar" && <Calendar />}
+        </div>
       </div>
     </div>
   );
