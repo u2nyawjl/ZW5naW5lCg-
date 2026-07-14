@@ -17,7 +17,7 @@ Cualquier ruta fuera de esa lista se considera un sondeo y se reporta. Ver abajo
 import base64
 import hmac
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -25,6 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 GITHUB_API = "https://api.github.com"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 
 AGENT_WAKE_SECRET = os.environ.get("AGENT_WAKE_SECRET", "")
 DASHBOARD_API_TOKEN = os.environ.get("DASHBOARD_API_TOKEN", "")
@@ -35,6 +37,11 @@ AGENT_REPO_NAME = os.environ.get("AGENT_REPO_NAME", "")
 VAULT_REPO_OWNER = os.environ.get("VAULT_REPO_OWNER", "")
 VAULT_REPO_NAME = os.environ.get("VAULT_REPO_NAME", "")
 CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
+GOOGLE_CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
 
 app = FastAPI(title="U2NyaWJl // gateway", docs_url=None, redoc_url=None)
 
@@ -185,6 +192,53 @@ async def logs(authorization: str | None = Header(default=None), limit: int = 20
     ]}
 
 
+@app.get("/api/calendar")
+async def calendar(authorization: str | None = Header(default=None), days: int = 21):
+    """Agenda real del Google Calendar del agente. Cada evento enlaza al calendario."""
+    require_dashboard(authorization)
+    if not GOOGLE_OAUTH_REFRESH_TOKEN:
+        return {"events": [], "detail": "Calendar no configurado"}
+
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        tok = await http.post(GOOGLE_TOKEN_URL, data={
+            "client_id": GOOGLE_OAUTH_CLIENT_ID,
+            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+            "refresh_token": GOOGLE_OAUTH_REFRESH_TOKEN,
+            "grant_type": "refresh_token",
+        })
+        if tok.status_code != 200:
+            raise HTTPException(status_code=502, detail="Google no renovó el token")
+        access = tok.json()["access_token"]
+
+        now = datetime.now(timezone.utc)
+        resp = await http.get(
+            f"{CALENDAR_API}/calendars/{GOOGLE_CALENDAR_ID}/events",
+            headers={"Authorization": f"Bearer {access}"},
+            params={
+                "timeMin": now.isoformat(),
+                "timeMax": (now + timedelta(days=days)).isoformat(),
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": 50,
+            },
+        )
+    if resp.status_code != 200:
+        return {"events": []}
+
+    return {"events": [
+        {
+            "id": e.get("id"),
+            "summary": e.get("summary", "(sin título)"),
+            "start": e.get("start", {}).get("dateTime") or e.get("start", {}).get("date"),
+            "end": e.get("end", {}).get("dateTime") or e.get("end", {}).get("date"),
+            "all_day": "date" in e.get("start", {}),
+            "location": e.get("location", ""),
+            "link": e.get("htmlLink", ""),
+        }
+        for e in resp.json().get("items", [])
+    ]}
+
+
 @app.get("/api/tasks")
 async def tasks(authorization: str | None = Header(default=None)):
     require_dashboard(authorization)
@@ -213,7 +267,7 @@ async def tasks(authorization: str | None = Header(default=None)):
 # reales y CUALQUIER otra cosa se trata como sondeo. No hay nada que filtrar, y
 # además cubre las rutas que no se me ocurrieron.
 
-REAL_ROUTES = {"/", "/wake", "/health", "/api/status", "/api/logs", "/api/tasks"}
+REAL_ROUTES = {"/", "/wake", "/health", "/api/status", "/api/logs", "/api/tasks", "/api/calendar"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta.
