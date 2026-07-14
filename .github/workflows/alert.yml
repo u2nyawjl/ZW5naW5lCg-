@@ -1,0 +1,59 @@
+name: alert
+
+# El gateway dispara esto cuando alguien pide una ruta que no existe.
+# El issue resultante llega como push a la app de GitHub del móvil: sistema de
+# alertas completo, cero infraestructura.
+on:
+  repository_dispatch:
+    types: [trip]
+
+permissions:
+  issues: write
+
+# Varios sondeos llegan en ráfaga: si corrieran en paralelo, cada uno crearía
+# su propio issue creyendo que no existía ninguno.
+concurrency:
+  group: alert
+  cancel-in-progress: false
+
+jobs:
+  reportar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Agrupar el sondeo en el parte del día
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          IP: ${{ github.event.client_payload.ip }}
+          RUTA: ${{ github.event.client_payload.path }}
+          METODO: ${{ github.event.client_payload.method }}
+          UA: ${{ github.event.client_payload.user_agent }}
+          CUANDO: ${{ github.event.client_payload.at }}
+        run: |
+          set -euo pipefail
+          HOY=$(date -u +%F)
+          TITULO="Sondeos detectados · $HOY"
+          LINEA="- \`$CUANDO\` · **$METODO $RUTA** · IP \`$IP\` · UA \`$UA\`"
+
+          # Un issue por día, no uno por petición: un escáner haría cientos.
+          NUM=$(gh issue list --repo "$REPO" --state open --label seguridad \
+                  --search "$TITULO in:title" --json number,title \
+                  --jq "[.[] | select(.title == \"$TITULO\")] | .[0].number // empty")
+
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --repo "$REPO" --body "$LINEA"
+            echo "Añadido al issue #$NUM"
+          else
+            gh label create seguridad --repo "$REPO" --color B60205 \
+              --description "Actividad no solicitada contra el gateway" 2>/dev/null || true
+            gh issue create --repo "$REPO" --label seguridad --title "$TITULO" --body \
+          "Alguien pidió rutas que **no existen**. Hacia estas rutas no hay tráfico
+          inocente: o es un escáner automatizado, o alguien buscando a mano.
+
+          El gateway respondió un 404 genérico — no le confirmó que hubiera nada detrás.
+
+          $LINEA"
+            echo "Nuevo issue del día creado"
+          fi
