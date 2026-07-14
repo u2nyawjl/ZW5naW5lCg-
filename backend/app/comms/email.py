@@ -115,3 +115,18 @@ class EmailClient:
 
     async def fetch(self, label: str = "", unread_only: bool = True) -> list[Message]:
         return await asyncio.to_thread(self._fetch_sync, label, unread_only)
+
+    def _mark_seen_sync(self, uid: str) -> None:
+        conn = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+        try:
+            conn.login(self.address, self._password)
+            conn.select("INBOX")
+            conn.store(uid, "+FLAGS", "\\Seen")
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
+    async def mark_seen(self, uid: str) -> None:
+        await asyncio.to_thread(self._mark_seen_sync, uid)

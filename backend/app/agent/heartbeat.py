@@ -1,12 +1,14 @@
-"""El latido.
+"""El latido: orquestador del agente.
 
-Se despierta por dos vías y no distingue mucho entre ellas:
-  · cron  → una vez al día (12:00 UTC = 08:00 Santiago)
-  · wake  → repository_dispatch, cuando entra un correo etiquetado `agent-wake`
+Cada tick (cron cada 30 min, o wake por correo urgente, o disparo manual):
+  1. Lee la misión y el estado actual de la bóveda.
+  2. Ingesta de correo: clasifica lo nuevo con el LLM y guarda lo relevante.
+  3. Recordatorios: avisa de lo que entra en ventana (día antes / inminente).
+  4. Vuelca los eventos al timeline durable de la bóveda.
+  5. Escribe un parte de estado corto (plantilla, sin gastar tokens).
+  6. Avisa al dueño SOLO si hay algo que amerite.
 
-Recoge el estado (tareas abiertas, eventos próximos, correo sin leer), lo deja escrito
-en la bóveda y reporta al dueño. Es idempotente: la nota del día se sobrescribe, así que
-dos latidos seguidos no duplican nada.
+Cada fase falla por su cuenta: que Calendar esté caído no debe dejar sin ingesta al correo.
 
     python -m app.agent.heartbeat
 """
@@ -14,204 +16,197 @@ dos latidos seguidos no duplican nada.
 import asyncio
 import os
 import sys
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-import httpx
-
+from app.agent import reminders
+from app.agent.brain import Brain
+from app.agent.intake import IntakeResult, process_inbox
 from app.comms.email import EmailClient
 from app.config import get_settings
 from app.core.events import Level, log_event
 from app.integrations.github import GitHubClient
 from app.integrations.google import GoogleClient
+from app.security.virustotal import VirusTotalClient
+from app.vault import timeline
 
 
 @dataclass
 class Pulse:
     trigger: str
     at: datetime
-    tasks: list[dict]
-    events: list[dict]
-    unread: int
-    errors: list[str]
+    tasks: list[dict] = field(default_factory=list)
+    intake: IntakeResult = field(default_factory=IntakeResult)
+    reminders_sent: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    events: list[dict] = field(default_factory=list)
 
 
-async def gather(settings, trigger: str) -> Pulse:
-    now = datetime.now(timezone.utc)
-    errors: list[str] = []
-    tasks: list[dict] = []
-    events: list[dict] = []
-    unread = 0
-
-    engine = GitHubClient(
-        token=settings.issues_token,
-        owner=settings.agent_repo_owner,
-        repo=settings.agent_repo_name,
-    )
-    google = GoogleClient(
-        client_id=settings.google_oauth_client_id,
-        client_secret=settings.google_oauth_client_secret,
-        refresh_token=settings.google_oauth_refresh_token,
-        root_folder_id=settings.gdrive_root_folder_id,
-        calendar_id=settings.google_calendar_id,
-    )
-    mail = EmailClient(
-        address=settings.gmail_address,
-        password=settings.imap_password,
-        imap_host=settings.imap_host,
-        imap_port=settings.imap_port,
-        smtp_host=settings.smtp_host,
-        smtp_port=settings.smtp_port,
-    )
-
-    # Cada fuente falla por su cuenta: que Calendar esté caído no debe dejar
-    # al agente sin reportar las tareas.
+async def _read_vault_text(vault: GitHubClient, path: str, fallback: str) -> str:
     try:
-        tasks = await engine.open_tasks()
-    except Exception as exc:
-        errors.append(f"tareas: {type(exc).__name__}: {exc}")
-
-    try:
-        events = await google.upcoming_events(since=now, limit=10)
-    except Exception as exc:
-        errors.append(f"calendario: {type(exc).__name__}: {exc}")
-
-    try:
-        unread = len(await mail.fetch(label=settings.gmail_wake_label, unread_only=True))
-    except Exception as exc:
-        errors.append(f"correo: {type(exc).__name__}: {exc}")
-
-    await engine.aclose()
-    await google.aclose()
-
-    return Pulse(trigger=trigger, at=now, tasks=tasks, events=events, unread=unread, errors=errors)
-
-
-def render_note(pulse: Pulse, agent: str) -> str:
-    fecha = pulse.at.strftime("%Y-%m-%d")
-    lines = [
-        "---",
-        "tipo: heartbeat",
-        f"fecha: {fecha}",
-        f"disparo: {pulse.trigger}",
-        f"actualizado: {pulse.at.isoformat(timespec='seconds')}",
-        "---",
-        "",
-        f"# Latido · {fecha}",
-        "",
-        f"Despertado por **{pulse.trigger}** a las {pulse.at.strftime('%H:%M')} UTC.",
-        "",
-        "## Tareas abiertas",
-        "",
-    ]
-    if pulse.tasks:
-        lines += [f"- [ ] #{t['number']} {t['title']}" for t in pulse.tasks]
-    else:
-        lines.append("_Ninguna._")
-
-    lines += ["", "## Próximos eventos", ""]
-    if pulse.events:
-        for e in pulse.events:
-            start = e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", "?")
-            lines.append(f"- {start[:16]} · {e.get('summary', 'sin título')}")
-    else:
-        lines.append("_Ninguno._")
-
-    lines += ["", "## Correo pendiente", "", f"{pulse.unread} sin leer con la etiqueta de despertar."]
-
-    if pulse.errors:
-        lines += ["", "## Fallos", ""] + [f"- ⚠️ {e}" for e in pulse.errors]
-
-    lines += ["", "---", f"_Generado por {agent}._", ""]
-    return "\n".join(lines)
-
-
-def render_email(pulse: Pulse) -> tuple[str, str]:
-    fecha = pulse.at.strftime("%Y-%m-%d %H:%M UTC")
-    estado = "con incidencias" if pulse.errors else "sin incidencias"
-    subject = f"U2NyaWJl · latido {pulse.at.strftime('%Y-%m-%d')} ({estado})"
-
-    body = [
-        "Hola mundo.",
-        "",
-        f"Soy U2NyaWJl. Este es mi primer latido: {fecha}, disparado por '{pulse.trigger}'.",
-        "",
-        f"  Tareas abiertas ....... {len(pulse.tasks)}",
-        f"  Eventos próximos ...... {len(pulse.events)}",
-        f"  Correo por revisar .... {pulse.unread}",
-        "",
-    ]
-    if pulse.tasks:
-        body += ["Tareas:"] + [f"  #{t['number']} · {t['title']}" for t in pulse.tasks] + [""]
-    if pulse.events:
-        body += ["Agenda:"]
-        for e in pulse.events:
-            start = e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", "?")
-            body.append(f"  {start[:16]} · {e.get('summary', 'sin título')}")
-        body.append("")
-    if pulse.errors:
-        body += ["Fallos:"] + [f"  ⚠️ {e}" for e in pulse.errors] + [""]
-
-    body += ["Vuelvo a dormir.", "", "--", "U2NyaWJl"]
-    return subject, "\n".join(body)
+        note = await vault.read_note(path)
+        return note.content if note else fallback
+    except Exception:
+        return fallback
 
 
 async def beat() -> int:
     settings = get_settings()
     trigger = os.getenv("HEARTBEAT_TRIGGER", "manual")
+    now = datetime.now(timezone.utc)
+    pulse = Pulse(trigger=trigger, at=now)
 
-    pulse = await gather(settings, trigger)
+    vault = GitHubClient(settings.vault_github_token, settings.vault_repo_owner,
+                         settings.vault_repo_name, settings.vault_repo_branch)
+    engine = GitHubClient(settings.issues_token, settings.agent_repo_owner,
+                          settings.agent_repo_name)
+    brain = Brain(settings.github_models_token, settings.github_models_base_url,
+                  settings.github_models_model)
+    google = GoogleClient(settings.google_oauth_client_id, settings.google_oauth_client_secret,
+                          settings.google_oauth_refresh_token, settings.gdrive_root_folder_id,
+                          settings.google_calendar_id)
+    mail = EmailClient(settings.gmail_address, settings.imap_password, settings.imap_host,
+                       settings.imap_port, settings.smtp_host, settings.smtp_port)
+    smtp = EmailClient(settings.gmail_address, settings.smtp_password,
+                       smtp_host=settings.smtp_host, smtp_port=settings.smtp_port)
+    vt = VirusTotalClient(settings.virustotal_api_key)
 
-    vault = GitHubClient(
-        token=settings.vault_github_token,
-        owner=settings.vault_repo_owner,
-        repo=settings.vault_repo_name,
-        branch=settings.vault_repo_branch,
-    )
-    mail = EmailClient(
-        address=settings.gmail_address,
-        password=settings.smtp_password,
-        smtp_host=settings.smtp_host,
-        smtp_port=settings.smtp_port,
-    )
+    mission = await _read_vault_text(vault, "system/mission.md", "Secretario general.")
+    state = await _read_vault_text(vault, "system/state.md", "")
+    contexto = f"{mission}\n\n## Contexto actual\n{state}" if state else mission
 
-    fecha = pulse.at.strftime("%Y-%m-%d")
+    # 1. Tareas. Los issues de seguridad (sondeos al gateway) también viven en Issues,
+    # pero no son tareas del dueño: se excluyen para no ensuciar su lista.
+    try:
+        todos = await engine.open_tasks()
+        pulse.tasks = [
+            t for t in todos
+            if not any(lab["name"] in ("seguridad", "alerta") for lab in t.get("labels", []))
+        ]
+    except Exception as exc:
+        pulse.errors.append(f"tareas: {type(exc).__name__}: {exc}")
+
+    # 2. Ingesta de correo
+    try:
+        pulse.intake = await process_inbox(
+            settings, brain=brain, vault=vault, google=google, mail=mail,
+            vt_client=vt, mission=contexto,
+        )
+        pulse.events.extend(pulse.intake.events)
+        pulse.errors.extend(pulse.intake.errors)
+        print(f"✅ Ingesta  · {pulse.intake.processed} correos, "
+              f"{pulse.intake.relevant} relevantes, {pulse.intake.files_stored} archivos")
+    except Exception as exc:
+        pulse.errors.append(f"ingesta: {type(exc).__name__}: {exc}")
+        print(f"❌ Ingesta  · {exc}")
+
+    # 3. Recordatorios
+    try:
+        pulse.reminders_sent, tl = await reminders.check(google, vault, smtp, settings.owner_email)
+        pulse.events.extend(tl)
+        if pulse.reminders_sent:
+            print(f"✅ Avisos   · {len(pulse.reminders_sent)} recordatorio(s)")
+    except Exception as exc:
+        pulse.errors.append(f"recordatorios: {type(exc).__name__}: {exc}")
+
+    # 4. Timeline durable + resumen del latido
+    pulse.events.append(timeline.event(
+        "heartbeat", f"Latido ({trigger}): {pulse.intake.relevant} correos relevantes, "
+        f"{len(pulse.reminders_sent)} avisos", level="warn" if pulse.errors else "info",
+    ))
+    try:
+        await timeline.append(vault, pulse.events)
+    except Exception as exc:
+        pulse.errors.append(f"timeline: {exc}")
+
+    # 5. Parte de estado en la bóveda
     try:
         await vault.write_note(
-            f"heartbeat/{fecha}.md",
-            render_note(pulse, settings.agent_name),
-            f"heartbeat: latido {fecha} ({trigger})",
+            f"heartbeat/{now:%Y-%m-%d}.md", _render_note(pulse),
+            f"heartbeat: {now:%Y-%m-%d} ({trigger})",
         )
-        print(f"✅ Bóveda   · heartbeat/{fecha}.md")
-    except httpx.HTTPStatusError as exc:
-        pulse.errors.append(f"bóveda: HTTP {exc.response.status_code}")
-        print(f"❌ Bóveda   · HTTP {exc.response.status_code}")
-    finally:
-        await vault.aclose()
-
-    subject, body = render_email(pulse)
-    try:
-        await mail.send(settings.owner_email, subject, body)
-        print(f"✅ Correo   · enviado a {settings.owner_email}")
+        print(f"✅ Bóveda   · heartbeat/{now:%Y-%m-%d}.md")
     except Exception as exc:
-        print(f"❌ Correo   · {type(exc).__name__}: {exc}")
-        pulse.errors.append(f"envío: {exc}")
+        pulse.errors.append(f"bóveda: {exc}")
+
+    # 6. Aviso solo si hay algo
+    if _is_noteworthy(pulse):
+        subject, body = _render_report(pulse)
+        try:
+            await smtp.send(settings.owner_email, subject, body)
+            print(f"✅ Correo   · aviso a {settings.owner_email}")
+        except Exception as exc:
+            pulse.errors.append(f"envío: {exc}")
+    else:
+        print("· Correo   · latido silencioso")
 
     log_event(
         "agent.heartbeat",
-        f"Latido ({trigger}): {len(pulse.tasks)} tareas, {len(pulse.events)} eventos, "
-        f"{pulse.unread} correos",
-        level=Level.WARN if pulse.errors else Level.INFO,
-        logs_dir=settings.logs_dir,
-        trigger=trigger,
-        errors=pulse.errors,
+        f"Latido ({trigger}): {pulse.intake.relevant} relevantes, "
+        f"{len(pulse.reminders_sent)} avisos, {len(pulse.errors)} fallos",
+        level=Level.WARN if pulse.errors else Level.INFO, logs_dir=settings.logs_dir,
     )
-
     for err in pulse.errors:
         print(f"⚠️  {err}")
 
-    # Un fallo en una fuente no tumba el latido: se reporta y se sigue.
+    for c in (brain, google, vault, engine, vt):
+        await c.aclose()
     return 0
+
+
+def _is_noteworthy(pulse: Pulse) -> bool:
+    return bool(pulse.tasks or pulse.intake.relevant or pulse.reminders_sent or pulse.errors)
+
+
+def _render_report(pulse: Pulse) -> tuple[str, str]:
+    """Parte corto y preciso. Plantilla, cero tokens de LLM."""
+    partes = []
+    if pulse.intake.relevant:
+        partes.append(f"{pulse.intake.relevant} correos")
+    if pulse.reminders_sent:
+        partes.append(f"{len(pulse.reminders_sent)} recordatorios")
+    if pulse.tasks:
+        partes.append(f"{len(pulse.tasks)} tareas")
+    if pulse.errors:
+        partes.append("incidencias")
+    subject = f"U2NyaWJl · {' · '.join(partes) if partes else 'sin novedades'}"
+
+    body = [f"Estado · {pulse.at:%Y-%m-%d %H:%M} UTC ({pulse.trigger})", ""]
+    body.append(f"Correo relevante: {pulse.intake.relevant}/{pulse.intake.processed}   "
+                f"Archivos: {pulse.intake.files_stored}   Tareas: {len(pulse.tasks)}")
+    if pulse.reminders_sent:
+        body += ["", "Recordatorios:"] + [f"  ⏰ {r}" for r in pulse.reminders_sent]
+    if pulse.intake.notes:
+        body += ["", "Guardado en la bóveda:"] + [f"  · {n}" for n in pulse.intake.notes]
+    if pulse.tasks:
+        body += ["", "Tareas:"] + [f"  #{t['number']} · {t['title']}" for t in pulse.tasks]
+    if pulse.errors:
+        body += ["", "Fallos:"] + [f"  ⚠️ {e}" for e in pulse.errors]
+    return subject, "\n".join(body)
+
+
+def _render_note(pulse: Pulse) -> str:
+    lines = [
+        "---", "tipo: heartbeat", f"fecha: {pulse.at:%Y-%m-%d}",
+        f"disparo: {pulse.trigger}", f"actualizado: {pulse.at.isoformat(timespec='seconds')}",
+        "---", "", f"# Latido · {pulse.at:%Y-%m-%d}", "",
+        f"Despertado por **{pulse.trigger}** a las {pulse.at:%H:%M} UTC.", "",
+        "## Correo",
+        f"- Procesados: {pulse.intake.processed}",
+        f"- Relevantes: {pulse.intake.relevant}",
+        f"- Archivos guardados: {pulse.intake.files_stored}"
+        + (f" · bloqueados: {pulse.intake.files_blocked}" if pulse.intake.files_blocked else ""),
+    ]
+    if pulse.intake.notes:
+        lines += ["", "## Guardado", ""] + [f"- [[{n}]]" for n in pulse.intake.notes]
+    if pulse.reminders_sent:
+        lines += ["", "## Recordatorios enviados", ""] + [f"- ⏰ {r}" for r in pulse.reminders_sent]
+    lines += ["", "## Tareas abiertas", ""]
+    lines += [f"- [ ] #{t['number']} {t['title']}" for t in pulse.tasks] or ["_Ninguna._"]
+    if pulse.errors:
+        lines += ["", "## Fallos", ""] + [f"- ⚠️ {e}" for e in pulse.errors]
+    lines += ["", "---", "_Generado por U2NyaWJl._"]
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
