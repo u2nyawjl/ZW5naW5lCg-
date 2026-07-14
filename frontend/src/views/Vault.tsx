@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { api, VaultEntry } from "../lib/api";
 import { useCached } from "../lib/useCached";
 import { Graph, GraphNode, GraphLink } from "../components/Graph";
+import { NoteView } from "./NoteView";
 
 const ROOTS = ["system", "inbox", "documents", "heartbeat", "timeline"];
 
@@ -65,6 +64,14 @@ export function Vault() {
     }
   }
 
+  // Clic en una carpeta raíz → vista especial de esa carpeta (sin archivo activo).
+  function openFolder(root: string) {
+    setActive(root);
+    setTab("editor");
+    setContent("");
+    setHash("");
+  }
+
   return (
     <div className="grid2">
       <div className="panel">
@@ -73,7 +80,8 @@ export function Vault() {
           <ul className="tree">
             {ROOTS.map((root) => (
               <li key={root}>
-                <div className="dir">▸ /{root}</div>
+                <div className={`dir ${active === root ? "active" : ""}`}
+                     onClick={() => openFolder(root)}>▸ /{root}</div>
                 <ul className="tree">
                   {(tree?.[root] || []).map((f) => (
                     <li key={f.path} className={`file ${active === f.path ? "active" : ""}`}
@@ -109,12 +117,10 @@ export function Vault() {
                   <code>{hash}</code>
                 </div>
               )}
-              <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-              </div>
+              <NoteView active={active} content={content} tree={tree || {}} onOpen={open} />
             </div>
           ) : (
-            <div className="empty">Elige una nota del árbol.</div>
+            <div className="empty">Elige una nota o carpeta del árbol.</div>
           )}
         </div>
       </div>
