@@ -1,0 +1,38 @@
+# Secretos
+# ".env" a secas NO cubre .env.bak ni .env.local: un backup con tokens se colaría al repo.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*service-account*.json
+
+# Códigos de recuperación: con ellos se salta el 2FA y se toma la cuenta entera.
+# El repo del agente es PÚBLICO. Esto no puede acercarse a un commit.
+*recovery-codes*
+*recovery_codes*
+*backup-codes*
+
+# Datos en runtime
+data/
+quarantine/
+logs/
+vault/          # la bóveda es su propio repositorio
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# SO / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

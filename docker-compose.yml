@@ -1,0 +1,59 @@
+name: u2scribe
+
+x-backend: &backend
+  image: u2scribe-backend:dev
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      UID: ${HOST_UID:-1000}
+      GID: ${HOST_GID:-1000}
+  env_file: [.env]
+  environment:
+    TZ: ${TZ:-America/Santiago}
+  volumes:
+    - ./vault:/app/vault
+    - ./data:/app/data
+    - ./quarantine:/app/quarantine
+    - ./logs:/app/logs
+    - ./backend/app:/app/app
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *backend
+    container_name: u2s_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Sin ingreso público: el webhook de WhatsApp entrará por el túnel, no por este puerto.
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    <<: *backend
+    container_name: u2s_worker
+    command: python -m app.agent.loop
+    profiles: ["agent"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+
+  frontend:
+    image: node:22-alpine
+    container_name: u2s_frontend
+    profiles: ["dev"]
+    working_dir: /app
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "127.0.0.1:5173:5173"

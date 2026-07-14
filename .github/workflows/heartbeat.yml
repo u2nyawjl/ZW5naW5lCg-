@@ -1,0 +1,80 @@
+name: heartbeat
+
+on:
+  schedule:
+    # SIEMPRE UTC. 12:00 UTC = 08:00 en Santiago (UTC-4, invierno).
+    # GitHub puede retrasar el cron bajo carga; para un latido diario da igual.
+    - cron: "0 12 * * *"
+
+  # El despertar instantáneo: Apps Script → Vercel → aquí.
+  repository_dispatch:
+    types: [wake]
+
+  # Botón manual en la pestaña Actions.
+  workflow_dispatch:
+
+# Dos latidos a la vez escribirían la misma nota del día y se pisarían.
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write        # el agente abre, comenta y cierra tareas
+
+jobs:
+  beat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      # python-magic necesita la librería C. En el runner sí hay apt.
+      - name: Dependencias del sistema
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1
+
+      - name: Dependencias de Python
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Latir
+        working-directory: backend
+        env:
+          HEARTBEAT_TRIGGER: ${{ github.event_name }}
+
+          AGENT_NAME: U2NyaWJl
+          LOGS_DIR: /tmp/logs
+
+          # Issues: el token que inyecta Actions ya trae permiso de escritura.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENT_REPO_OWNER: ${{ github.repository_owner }}
+          AGENT_REPO_NAME: ${{ github.event.repository.name }}
+
+          VAULT_REPO_OWNER: ${{ secrets.VAULT_REPO_OWNER }}
+          VAULT_REPO_NAME: ${{ secrets.VAULT_REPO_NAME }}
+          VAULT_REPO_BRANCH: main
+          VAULT_GITHUB_TOKEN: ${{ secrets.VAULT_GITHUB_TOKEN }}
+
+          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_MODELS_TOKEN }}
+
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_CALENDAR_ID: primary
+
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          GMAIL_WAKE_LABEL: agent-wake
+
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: python -m app.agent.heartbeat
