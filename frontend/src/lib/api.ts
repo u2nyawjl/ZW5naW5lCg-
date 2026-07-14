@@ -37,7 +37,21 @@ export type VaultResp =
   | { type: "file"; path: string; content: string };
 export interface FileRow {
   filename: string; sha256: string; mime: string; vt_status: string;
-  vt_detections: string; decision: string; drive_link: string; note_path: string;
+  vt_detections: string; decision: string; drive_link: string;
+  drive_id?: string; note_path: string;
+}
+
+export async function fetchFileBlob(driveId: string): Promise<Blob> {
+  const resp = await fetch(`${API_BASE}/api/file?id=${encodeURIComponent(driveId)}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.blob();
+}
+
+export function driveIdFromLink(link: string): string {
+  const m = link.match(/\/d\/([^/]+)/);
+  return m ? m[1] : "";
 }
 export interface CalEvent {
   id: string; summary: string; start: string; end: string;

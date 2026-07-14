@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 GITHUB_API = "https://api.github.com"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -238,6 +238,39 @@ async def logs(authorization: str | None = Header(default=None), limit: int = 20
     ]}
 
 
+async def _google_token(http: httpx.AsyncClient) -> str:
+    tok = await http.post(GOOGLE_TOKEN_URL, data={
+        "client_id": GOOGLE_OAUTH_CLIENT_ID,
+        "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
+        "refresh_token": GOOGLE_OAUTH_REFRESH_TOKEN,
+        "grant_type": "refresh_token",
+    })
+    if tok.status_code != 200:
+        raise HTTPException(status_code=502, detail="Google no renovó el token")
+    return tok.json()["access_token"]
+
+
+@app.get("/api/file")
+async def file(id: str, authorization: str | None = Header(default=None)):
+    """Sirve los bytes de un archivo de Drive del agente, para verlo en el dashboard."""
+    require_dashboard(authorization)
+    if not GOOGLE_OAUTH_REFRESH_TOKEN:
+        raise HTTPException(status_code=503, detail="Drive no configurado")
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        access = await _google_token(http)
+        resp = await http.get(
+            f"https://www.googleapis.com/drive/v3/files/{id}",
+            params={"alt": "media"},
+            headers={"Authorization": f"Bearer {access}"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="No se pudo leer el archivo")
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "application/octet-stream"),
+    )
+
+
 @app.get("/api/calendar")
 async def calendar(authorization: str | None = Header(default=None), days: int = 21):
     """Agenda real del Google Calendar del agente. Cada evento enlaza al calendario."""
@@ -246,16 +279,7 @@ async def calendar(authorization: str | None = Header(default=None), days: int =
         return {"events": [], "detail": "Calendar no configurado"}
 
     async with httpx.AsyncClient(timeout=15.0) as http:
-        tok = await http.post(GOOGLE_TOKEN_URL, data={
-            "client_id": GOOGLE_OAUTH_CLIENT_ID,
-            "client_secret": GOOGLE_OAUTH_CLIENT_SECRET,
-            "refresh_token": GOOGLE_OAUTH_REFRESH_TOKEN,
-            "grant_type": "refresh_token",
-        })
-        if tok.status_code != 200:
-            raise HTTPException(status_code=502, detail="Google no renovó el token")
-        access = tok.json()["access_token"]
-
+        access = await _google_token(http)
         now = datetime.now(timezone.utc)
         resp = await http.get(
             f"{CALENDAR_API}/calendars/{GOOGLE_CALENDAR_ID}/events",
@@ -314,7 +338,7 @@ async def tasks(authorization: str | None = Header(default=None)):
 # además cubre las rutas que no se me ocurrieron.
 
 REAL_ROUTES = {"/", "/auth", "/wake", "/health", "/api/status", "/api/logs",
-               "/api/tasks", "/api/calendar"}
+               "/api/tasks", "/api/calendar", "/api/file"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta.

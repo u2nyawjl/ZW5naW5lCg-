@@ -42,7 +42,7 @@ async def add(vault: GitHubClient, entry: dict) -> list[dict]:
     return merged
 
 
-def entry_from_report(report, drive_link: str, note_path: str) -> dict:
+def entry_from_report(report, drive_link: str, drive_id: str, note_path: str) -> dict:
     """Traduce un FileReport del pipeline a una fila del manifiesto."""
     return {
         "filename": report.filename,
@@ -55,6 +55,7 @@ def entry_from_report(report, drive_link: str, note_path: str) -> dict:
         "vt_detections": f"{report.virustotal.malicious}/{report.virustotal.total_engines}",
         "decision": str(report.decision),
         "drive_link": drive_link,       # vacío si no se subió (bloqueado o retenido)
+        "drive_id": drive_id,            # id de Drive, para el visor del dashboard
         "note_path": note_path,          # la nota .md con su texto y metadatos
         "text_chars": report.text_chars,
     }

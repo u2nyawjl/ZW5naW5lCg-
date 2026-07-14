@@ -14,7 +14,7 @@ function fmtTime(ev: CalEvent): string {
 }
 
 export function Calendar() {
-  const { data, loading } = useCached("calendar", api.calendar, 60000);
+  const { data, loading } = useCached("calendar", api.calendar);
   const events = data?.events || [];
   const error = "";
 

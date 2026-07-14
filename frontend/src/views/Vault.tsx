@@ -1,21 +1,42 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, VaultEntry } from "../lib/api";
 import { useCached } from "../lib/useCached";
 import { Graph, GraphNode, GraphLink } from "../components/Graph";
 
-// Carpetas raíz de la bóveda que el árbol muestra.
 const ROOTS = ["system", "inbox", "documents", "heartbeat", "timeline"];
 
+type Tree = Record<string, VaultEntry[]>;
+
+function buildGraph(acc: Tree): { nodes: GraphNode[]; links: GraphLink[] } {
+  const nodes: GraphNode[] = [];
+  const links: GraphLink[] = [];
+  Object.entries(acc).forEach(([root, files], gi) => {
+    nodes.push({ id: root, group: gi });
+    files.forEach((f) => {
+      const label = f.name.replace(/\.(md|json)$/, "");
+      nodes.push({ id: label, group: gi });
+      links.push({ source: root, target: label });
+    });
+  });
+  return { nodes, links };
+}
+
+async function sha256(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function Vault() {
-  const [content, setContent] = useState<string>("");
-  const [active, setActive] = useState<string>("");
+  const [content, setContent] = useState("");
+  const [active, setActive] = useState("");
+  const [hash, setHash] = useState("");
   const [tab, setTab] = useState<"graph" | "editor">("graph");
 
-  // El árbol se cachea: pinta al instante y revalida en segundo plano.
-  const { data: tree } = useCached<Record<string, VaultEntry[]>>("vault:tree", async () => {
-    const acc: Record<string, VaultEntry[]> = {};
+  // Sin polling: el árbol se lee una vez (revalida solo al reentrar a la vista).
+  const { data: tree } = useCached<Tree>("vault:tree", async () => {
+    const acc: Tree = {};
     for (const root of ROOTS) {
       try {
         const r = await api.vault(root);
@@ -23,31 +44,20 @@ export function Vault() {
       } catch { /* carpeta vacía */ }
     }
     return acc;
-  }, 30000);
+  });
 
-  const graph = buildGraph(tree || {});
-
-  function buildGraph(acc: Record<string, VaultEntry[]>): { nodes: GraphNode[]; links: GraphLink[] } {
-    const nodes: GraphNode[] = [];
-    const links: GraphLink[] = [];
-    Object.entries(acc).forEach(([root, files], gi) => {
-      nodes.push({ id: root, group: gi });
-      files.forEach((f) => {
-        const label = f.name.replace(/\.(md|json)$/, "");
-        nodes.push({ id: label, group: gi });
-        links.push({ source: root, target: label });
-      });
-    });
-    return { nodes, links };
-  }
+  // El grafo solo se reconstruye si el contenido del árbol cambia (no en cada render).
+  const graph = useMemo(() => buildGraph(tree || {}), [JSON.stringify(tree)]);
 
   async function open(path: string) {
     setActive(path);
     setTab("editor");
+    setHash("");
     try {
       const r = await api.vault(path);
       if (r.type === "file") {
         setContent(path.endsWith(".json") ? "```json\n" + r.content + "\n```" : r.content);
+        setHash(await sha256(r.content)); // hash de verificación del .md
       }
     } catch {
       setContent("_No se pudo leer la nota._");
@@ -90,11 +100,20 @@ export function Vault() {
               {graph.nodes.length ? <Graph nodes={graph.nodes} links={graph.links} />
                 : <div className="empty">Bóveda vacía.</div>}
             </div>
-          ) : (
-            <div className="markdown">
-              {active ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-                : <div className="empty">Elige una nota del árbol.</div>}
+          ) : active ? (
+            <div>
+              {hash && (
+                <div className="hashbar">
+                  <span className="hashlabel">SHA-256</span>
+                  <code>{hash}</code>
+                </div>
+              )}
+              <div className="markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              </div>
             </div>
+          ) : (
+            <div className="empty">Elige una nota del árbol.</div>
           )}
         </div>
       </div>

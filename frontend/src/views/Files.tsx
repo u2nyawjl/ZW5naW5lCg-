@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { FileRow } from "../lib/api";
 import { useDoc } from "../lib/useFirestore";
+import { FileViewer } from "../components/FileViewer";
 
 function vtBadge(status: string): string {
   if (status === "malicious" || status === "suspicious") return "bad";
@@ -16,6 +18,7 @@ export function Files() {
   const doc = useDoc<{ items: FileRow[] }>("files/current");
   const rows = doc?.items || [];
   const loading = doc === null;
+  const [open, setOpen] = useState<FileRow | null>(null);
 
   return (
     <div className="panel">
@@ -34,18 +37,23 @@ export function Files() {
             <tbody>
               {rows.map((f) => (
                 <tr key={f.sha256}>
-                  <td>{f.filename}</td>
-                  <td style={{ color: "#7a8a7a" }}>{f.mime}</td>
+                  <td>
+                    {f.drive_link
+                      ? <span className="link-btn" onClick={() => setOpen(f)}>{f.filename}</span>
+                      : f.filename}
+                  </td>
+                  <td style={{ color: "var(--muted)" }}>{f.mime}</td>
                   <td><span className={`badge ${vtBadge(f.vt_status)}`}>{f.vt_status} {f.vt_detections}</span></td>
                   <td><span className={`badge ${decisionBadge(f.decision)}`}>{f.decision}</span></td>
-                  <td style={{ color: "#555" }}>{f.sha256.slice(0, 12)}…</td>
-                  <td>{f.drive_link && <a href={f.drive_link} target="_blank" rel="noreferrer">Drive</a>}</td>
+                  <td style={{ color: "var(--faint)" }}>{f.sha256.slice(0, 12)}…</td>
+                  <td>{f.drive_link && <span className="link-btn" onClick={() => setOpen(f)}>ver</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+      {open && <FileViewer file={open} onClose={() => setOpen(null)} />}
     </div>
   );
 }

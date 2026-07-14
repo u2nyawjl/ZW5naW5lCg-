@@ -20,7 +20,7 @@
   --amber: #ffd479;
   --rose: #ff7a99;
 
-  --aurora: linear-gradient(120deg, #9d8bff 0%, #5fdcff 55%, #7ef0d0 100%);
+  --aurora: linear-gradient(120deg, #ffb347 0%, #ff6b35 48%, #ff2e63 100%);
 
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -156,13 +156,21 @@ a:hover { color: #9df0ff; }
 /* Árbol de la bóveda */
 .tree { list-style: none; padding: 0; margin: 0; font-size: 12.5px; }
 .tree > li { margin-bottom: 8px; }
-.tree .dir { color: var(--violet); font-weight: 600; padding: 3px 4px; letter-spacing: 0.3px; }
+.tree .dir { color: #ffffff; font-weight: 600; padding: 3px 4px; letter-spacing: 0.3px; }
 .tree .file {
   color: var(--muted); padding: 4px 8px 4px 20px; cursor: pointer; border-radius: 8px;
   font-family: var(--mono); font-size: 11.5px;
 }
 .tree .file:hover { background: rgba(157, 139, 255, 0.1); color: var(--text); }
 .tree .file.active { color: var(--cyan); background: rgba(95, 220, 255, 0.1); }
+
+.hashbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03);
+  font-family: var(--mono); font-size: 10.5px; overflow-x: auto;
+}
+.hashbar .hashlabel { color: var(--amber); font-weight: 600; letter-spacing: 1px; white-space: nowrap; }
+.hashbar code { color: var(--muted); background: none; }
 
 .markdown { line-height: 1.7; color: #d7d8ee; }
 .markdown h1 { font-size: 20px; font-weight: 650; color: #fff; margin-top: 0; }
@@ -186,7 +194,7 @@ table.grid tr:hover td { background: rgba(157, 139, 255, 0.05); }
 .badge.bad { background: rgba(255, 122, 153, 0.18); color: var(--rose); }
 
 /* Calendario */
-.cal-day-label { color: var(--violet); font-size: 11px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+.cal-day-label { color: #ffffff; font-size: 11px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
 .cal-event {
   border: 1px solid var(--border); border-left: 3px solid var(--cyan);
   border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
@@ -223,6 +231,24 @@ table.grid tr:hover td { background: rgba(157, 139, 255, 0.05); }
 }
 .login button:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(124, 92, 255, 0.4); }
 .login .err { color: var(--rose); font-size: 11.5px; text-align: center; margin-top: 12px; }
+
+/* Modal del visor de archivos */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+  background: rgba(3, 4, 12, 0.72); backdrop-filter: blur(6px);
+}
+.modal {
+  width: min(1000px, 92vw); height: min(85vh, 900px); display: flex; flex-direction: column;
+  background: var(--glass); backdrop-filter: blur(20px); border: 1px solid var(--border);
+  border-radius: 18px; box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.modal-body { flex: 1; overflow: auto; padding: 16px 20px; }
+.viewer-text { white-space: pre-wrap; word-break: break-word; color: #cfd0ea; font-family: var(--mono); font-size: 12px; line-height: 1.6; }
 
 .grid2 { display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 100%; }
 .empty { color: var(--faint); padding: 40px; text-align: center; font-size: 12.5px; }

@@ -112,6 +112,7 @@ async def _process_one(
         )
 
         drive_link = ""
+        drive_id = ""
         note_path = f"documents/{report.sha256[:12]}-{_slug(att.filename)}.md"
 
         # Un archivo peligroso NO sube a Drive: subir malware a Google puede marcar
@@ -121,6 +122,7 @@ async def _process_one(
                 att.filename, att.content, mime=report.mime, folder_id=docs_folder
             )
             drive_link = uploaded.link
+            drive_id = uploaded.id
             result.files_stored += 1
             result.events.append(timeline.event(
                 "file.scanned", f"Archivo guardado: {att.filename}",
@@ -137,7 +139,7 @@ async def _process_one(
             note_path, _render_file_note(report, msg, drive_link),
             f"docs: {att.filename} ({report.decision})",
         )
-        entry = manifest.entry_from_report(report, drive_link, note_path)
+        entry = manifest.entry_from_report(report, drive_link, drive_id, note_path)
         await manifest.add(vault, entry)
         stored_files.append(entry)
 
