@@ -26,7 +26,6 @@ function Paper({ content }: { content: string }) {
 function Matrix({ content }: { content: string }) {
   return (
     <div className="markdown matrix">
-      <div className="matrix-scan" />
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
   );
@@ -81,25 +80,64 @@ function DocBrowser({ entries, onOpen }: { entries: VaultEntry[]; onOpen: (p: st
   );
 }
 
-// ───────────────────────── heartbeat (monitor de hospital) ────────────────
-function ecgPath(): string {
-  // Onda PQRST repetida a lo ancho; se desplaza con CSS.
-  const seg = "l14,0 l4,-6 l3,14 l4,-40 l4,44 l4,-12 l4,0 l10,0";
-  let d = "M0,60 ";
-  for (let i = 0; i < 12; i++) d += seg + " ";
-  return d;
+// ───────── heartbeat: monitor con datos REALES ─────────
+// El BPM es el ritmo real de latidos (1/día ≈ 0.00069 BPM). El "electro" no es una onda
+// cardíaca falsa: es la actividad real de las últimas 24 h (como el gráfico de commits de
+// un repo), pero dibujada con forma de ECG para que se vea como un monitor.
+function fmtBpm(x: number): string {
+  if (x <= 0) return "0";
+  if (x >= 1) return Math.round(x).toString();
+  return x.toPrecision(2); // p. ej. 0.00069, 0.033
 }
-function within(ts: string, since: Date) { return new Date(ts) >= since; }
+function humanInterval(ms: number): string {
+  const m = ms / 60000;
+  if (m >= 1440) { const d = m / 1440; return `≈ cada ${d >= 10 ? Math.round(d) : d.toFixed(1)} día${d >= 2 ? "s" : ""}`; }
+  if (m >= 60) return `≈ cada ${(m / 60).toFixed(1)} h`;
+  return `≈ cada ${Math.round(m)} min`;
+}
+function activityEcg(times: number[]): string {
+  const now = Date.now(), start = now - 24 * 3600 * 1000;
+  const W = 560, mid = 72, BINS = 56;
+  const counts = new Array(BINS).fill(0);
+  times.forEach((t) => {
+    if (t >= start && t <= now) {
+      const b = Math.min(BINS - 1, Math.floor((t - start) / ((now - start) / BINS)));
+      counts[b]++;
+    }
+  });
+  const max = Math.max(1, ...counts);
+  let d = `M0,${mid}`;
+  for (let i = 0; i < BINS; i++) {
+    const x = ((i + 0.5) / BINS) * W;
+    if (counts[i] > 0) {
+      const amp = 14 + (counts[i] / max) * 46; // altura del pico ∝ actividad real
+      d += ` L${(x - 6).toFixed(1)},${mid} L${(x - 3).toFixed(1)},${(mid + amp * 0.18).toFixed(1)}`
+        + ` L${x.toFixed(1)},${(mid - amp).toFixed(1)} L${(x + 3).toFixed(1)},${(mid + amp * 0.28).toFixed(1)}`
+        + ` L${(x + 6).toFixed(1)},${mid}`;
+    }
+  }
+  return d + ` L${W},${mid}`;
+}
 
 function HeartbeatMonitor() {
-  const events = useCollection<LogEvent>("timeline", "ts", 200);
-  const now = new Date();
-  const dayAgo = new Date(now.getTime() - 864e5);
-  const weekAgo = new Date(now.getTime() - 7 * 864e5);
-  const monthAgo = new Date(now.getTime() - 30 * 864e5);
+  const events = useCollection<LogEvent>("timeline", "ts", 300);
+  const now = Date.now();
+  const cols: [string, Date][] = [
+    ["Hoy", new Date(now - 864e5)], ["Semana", new Date(now - 7 * 864e5)], ["Mes", new Date(now - 30 * 864e5)],
+  ];
+
+  // BPM real: mediana del intervalo entre latidos consecutivos.
+  const beats = events.filter((e) => e.type === "heartbeat").map((e) => +new Date(e.ts)).sort((a, b) => a - b);
+  let medianGap = 0;
+  if (beats.length >= 2) {
+    const gaps = beats.slice(1).map((t, i) => t - beats[i]).sort((a, b) => a - b);
+    medianGap = gaps[Math.floor(gaps.length / 2)];
+  }
+  const bpm = medianGap > 0 ? 60000 / medianGap : 0;
+  const ecg = activityEcg(events.map((e) => +new Date(e.ts)));
 
   const tally = (since: Date) => {
-    const evs = events.filter((e) => within(e.ts, since));
+    const evs = events.filter((e) => new Date(e.ts) >= since);
     return {
       latidos: evs.filter((e) => e.type === "heartbeat").length,
       correos: evs.filter((e) => e.type === "email.saved").length,
@@ -107,17 +145,20 @@ function HeartbeatMonitor() {
       personas: evs.filter((e) => e.type === "people.added").length,
     };
   };
-  const cols: [string, Date][] = [["Hoy", dayAgo], ["Semana", weekAgo], ["Mes", monthAgo]];
-  const bpm = 60 + Math.min(40, tally(dayAgo).latidos * 3);
 
   return (
     <div className="hb">
       <div className="hb-monitor">
-        <div className="hb-bpm"><span className="hb-bpm-n">{bpm}</span><span className="hb-bpm-u">BPM</span></div>
+        <div className="hb-bpm">
+          <span className="hb-bpm-n">{fmtBpm(bpm)}</span>
+          <span className="hb-bpm-u">BPM</span>
+          {medianGap > 0 && <span className="hb-bpm-sub">{humanInterval(medianGap)}</span>}
+        </div>
         <div className="ecg">
           <svg viewBox="0 0 560 120" preserveAspectRatio="none">
-            <path className="ecg-line" d={ecgPath()} />
+            <path className="ecg-line" d={ecg} />
           </svg>
+          <div className="ecg-cursor" />
         </div>
       </div>
       <div className="hb-cols">
@@ -134,6 +175,7 @@ function HeartbeatMonitor() {
           );
         })}
       </div>
+      <div className="hb-foot">Actividad real de las últimas 24 h · cada pico es un latido o suceso.</div>
     </div>
   );
 }
