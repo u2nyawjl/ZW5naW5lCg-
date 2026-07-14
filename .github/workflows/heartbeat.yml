@@ -62,7 +62,8 @@ jobs:
           VAULT_REPO_BRANCH: main
           VAULT_GITHUB_TOKEN: ${{ secrets.VAULT_GITHUB_TOKEN }}
 
-          GITHUB_MODELS_TOKEN: ${{ secrets.GITHUB_MODELS_TOKEN }}
+          # Los secretos no pueden llamarse GITHUB_*: ese prefijo lo reserva la plataforma.
+          GITHUB_MODELS_TOKEN: ${{ secrets.MODELS_TOKEN }}
 
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
