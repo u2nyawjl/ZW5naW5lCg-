@@ -257,3 +257,19 @@ table.grid tr:hover td { background: rgba(157, 139, 255, 0.05); }
    para no depender de la carga del CSS. Aquí solo la fuente. */
 .node text { font-family: var(--sans); paint-order: stroke; }
 .subtab { cursor: pointer; font-weight: 600; letter-spacing: 0.5px; }
+
+/* Tooltip de la constelación: sigue al cursor sobre el nodo. */
+.graph-tip {
+  position: absolute; left: 0; top: 0; pointer-events: none;
+  opacity: 0; transition: opacity 0.12s ease; z-index: 5;
+  padding: 6px 10px; border-radius: 8px;
+  background: rgba(8, 9, 24, 0.92); border: 1px solid var(--border-lit);
+  backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  font-family: var(--sans); font-size: 11.5px; color: var(--text);
+  white-space: nowrap; display: flex; flex-direction: column; gap: 1px;
+}
+.graph-tip b { font-weight: 600; }
+.graph-tip .tip-kind {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--cyan);
+}

@@ -13,10 +13,11 @@ function buildGraph(acc: Tree): { nodes: GraphNode[]; links: GraphLink[] } {
   const nodes: GraphNode[] = [];
   const links: GraphLink[] = [];
   Object.entries(acc).forEach(([root, files], gi) => {
-    nodes.push({ id: root, group: gi });
+    nodes.push({ id: root, group: gi, kind: "root" });
     files.forEach((f) => {
       const label = f.name.replace(/\.(md|json)$/, "");
-      nodes.push({ id: label, group: gi });
+      const ext = f.name.match(/\.(md|json)$/)?.[1];
+      nodes.push({ id: label, group: gi, kind: "file", root, ext });
       links.push({ source: root, target: label });
     });
   });

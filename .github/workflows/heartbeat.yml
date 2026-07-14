@@ -80,4 +80,9 @@ jobs:
 
           # Seguridad de archivos
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+
+          # Firestore: espejo en vivo para el dashboard. Sin estas dos, el latido
+          # procesa el correo y escribe la bóveda pero NUNCA refleja nada al panel.
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
         run: python -m app.agent.heartbeat

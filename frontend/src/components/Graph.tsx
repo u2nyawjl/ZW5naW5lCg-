@@ -1,7 +1,13 @@
 import { useEffect, useRef } from "react";
 import * as d3 from "d3";
 
-export interface GraphNode { id: string; group: number; }
+export interface GraphNode {
+  id: string;
+  group: number;
+  kind?: "root" | "file";  // raíz de constelación vs. nota individual
+  root?: string;           // carpeta a la que pertenece (para el tooltip)
+  ext?: string;            // extensión original (md/json)
+}
 export interface GraphLink { source: string; target: string; }
 
 // Halos de color por tipo espectral. El núcleo de la estrella es blanco.
@@ -13,13 +19,30 @@ function sparkle(r: number): string {
   return `M0,${-o} L${i},${-i} L${o},0 L${i},${i} L0,${o} L${-i},${i} L${-o},0 L${-i},${-i} Z`;
 }
 
+// Etiqueta legible para el tooltip según la carpeta de origen.
+const ROOT_LABEL: Record<string, string> = {
+  system: "sistema", inbox: "correo", documents: "documento",
+  heartbeat: "latido", timeline: "bitácora",
+};
+
+function tipHtml(d: GraphNode): string {
+  if (d.kind === "root") {
+    return `<b>/${d.id}</b><span class="tip-kind">constelación</span>`;
+  }
+  const carpeta = d.root ? (ROOT_LABEL[d.root] || d.root) : "nota";
+  const ext = d.ext ? `.${d.ext}` : "";
+  return `<b>${d.id}${ext}</b><span class="tip-kind">${carpeta}</span>`;
+}
+
 export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[] }) {
   const ref = useRef<SVGSVGElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!ref.current || nodes.length === 0) return;
     const svg = d3.select(ref.current);
     svg.selectAll("*").remove();
+    const tip = tipRef.current;
 
     const width = ref.current.clientWidth;
     const height = ref.current.clientHeight;
@@ -69,6 +92,25 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
       .attr("fill", "#ffffff").attr("stroke", "#05060f").attr("stroke-width", 3)
       .attr("paint-order", "stroke").attr("font-size", 10);
 
+    // Tooltip: nombre completo + tipo de nodo, siguiendo al cursor.
+    node
+      .on("mouseover", function (_e, d) {
+        if (!tip) return;
+        tip.innerHTML = tipHtml(d);
+        tip.style.opacity = "1";
+        d3.select(this).select("path").transition().duration(120).attr("transform", "scale(1.4)");
+      })
+      .on("mousemove", function (e) {
+        if (!tip || !ref.current) return;
+        const r = ref.current.getBoundingClientRect();
+        tip.style.left = `${e.clientX - r.left + 14}px`;
+        tip.style.top = `${e.clientY - r.top + 14}px`;
+      })
+      .on("mouseout", function () {
+        if (tip) tip.style.opacity = "0";
+        d3.select(this).select("path").transition().duration(120).attr("transform", "scale(1)");
+      });
+
     sim.on("tick", () => {
       link.attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y)
         .attr("x2", (d: any) => d.target.x).attr("y2", (d: any) => d.target.y);
@@ -78,5 +120,10 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
     return () => { sim.stop(); };
   }, [nodes, links]);
 
-  return <svg ref={ref} style={{ width: "100%", height: "100%" }} />;
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <svg ref={ref} style={{ width: "100%", height: "100%" }} />
+      <div ref={tipRef} className="graph-tip" />
+    </div>
+  );
 }
