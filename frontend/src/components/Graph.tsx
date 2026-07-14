@@ -39,12 +39,19 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
         .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
         .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
 
-    // El núcleo es la estrella; `color` alimenta el drop-shadow (glow) del CSS,
-    // así cada nodo irradia en su propio color.
-    node.append("circle").attr("r", 5)
+    // Glow por-nodo con color explícito (sin depender de CSS ni currentColor).
+    node.append("circle").attr("r", 6)
       .attr("fill", (d) => COLORS[d.group % COLORS.length])
-      .style("color", (d) => COLORS[d.group % COLORS.length]);
-    node.append("text").attr("dx", 8).attr("dy", "0.35em").text((d) => d.id);
+      .style("filter", (d) => {
+        const c = COLORS[d.group % COLORS.length];
+        return `drop-shadow(0 0 4px ${c}) drop-shadow(0 0 10px ${c})`;
+      });
+    // Texto blanco con contorno oscuro (paint-order) para que resalte sobre el cielo.
+    node.append("text").attr("dx", 10).attr("dy", "0.35em").text((d) => d.id)
+      .attr("fill", "#ffffff")
+      .attr("stroke", "#05060f").attr("stroke-width", 3)
+      .attr("paint-order", "stroke")
+      .attr("font-size", 10);
 
     sim.on("tick", () => {
       link.attr("x1", (d: any) => d.source.x).attr("y1", (d: any) => d.source.y)
