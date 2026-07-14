@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { api, CalEvent } from "../lib/api";
+import { useCached } from "../lib/useCached";
 
 function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString("es-CL", {
@@ -14,16 +14,9 @@ function fmtTime(ev: CalEvent): string {
 }
 
 export function Calendar() {
-  const [events, setEvents] = useState<CalEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    api.calendar()
-      .then((r) => setEvents(r.events))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, loading } = useCached("calendar", api.calendar, 60000);
+  const events = data?.events || [];
+  const error = "";
 
   // Agrupa por día para una agenda legible.
   const byDay: Record<string, CalEvent[]> = {};

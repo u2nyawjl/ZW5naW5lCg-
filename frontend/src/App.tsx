@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, clearToken, getToken, setToken, StatusResp } from "./lib/api";
+import { clearCache } from "./lib/useCached";
 import { Timeline } from "./views/Timeline";
 import { Vault } from "./views/Vault";
 import { Files } from "./views/Files";
@@ -92,7 +93,7 @@ export function App() {
 
   return (
     <div className="app">
-      <Hud status={status} onLogout={() => { clearToken(); setAuthed(false); }} />
+      <Hud status={status} onLogout={() => { clearCache(); clearToken(); setAuthed(false); }} />
       <div className="nav">
         {VIEWS.map((v) => (
           <button key={v.id} className={view === v.id ? "active" : ""} onClick={() => setView(v.id)}>

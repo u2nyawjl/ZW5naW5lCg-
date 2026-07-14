@@ -227,7 +227,8 @@ table.grid tr:hover td { background: rgba(157, 139, 255, 0.05); }
 .grid2 { display: grid; grid-template-columns: 280px 1fr; gap: 16px; height: 100%; }
 .empty { color: var(--faint); padding: 40px; text-align: center; font-size: 12.5px; }
 
-/* Grafo */
-.node text { fill: #c9cbe8; font-size: 10px; font-family: var(--sans); }
-.node circle { filter: drop-shadow(0 0 5px rgba(157, 139, 255, 0.8)); }
+/* Grafo — constelación */
+.node text { fill: #ffffff; font-size: 10px; font-family: var(--sans); }
+/* Cada estrella irradia en su propio color (definido por-nodo con currentColor). */
+.node circle { filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 12px currentColor); }
 .subtab { cursor: pointer; font-weight: 600; letter-spacing: 0.5px; }

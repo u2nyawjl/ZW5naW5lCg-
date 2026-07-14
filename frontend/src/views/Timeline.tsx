@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { api, LogEvent } from "../lib/api";
+import { useCached } from "../lib/useCached";
 
 // Íconos por naturaleza del evento, como en el mock (emoji para no depender de FontAwesome).
 const ICONS: Record<string, string> = {
@@ -15,26 +15,11 @@ function icon(type: string): string {
 }
 
 export function Timeline() {
-  const [events, setEvents] = useState<LogEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const [tl, runs] = await Promise.all([api.timeline(), api.logs()]);
-        const merged = [...tl, ...runs.events]
-          .sort((a, b) => (a.ts < b.ts ? 1 : -1))
-          .slice(0, 100);
-        if (alive) setEvents(merged);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    };
-    load();
-    const id = setInterval(load, 15000); // refresco tipo "live"
-    return () => { alive = false; clearInterval(id); };
-  }, []);
+  const { data, loading } = useCached<LogEvent[]>("timeline", async () => {
+    const [tl, runs] = await Promise.all([api.timeline(), api.logs()]);
+    return [...tl, ...runs.events].sort((a, b) => (a.ts < b.ts ? 1 : -1)).slice(0, 100);
+  }, 15000);
+  const events = data || [];
 
   return (
     <div className="panel">

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { api, FileRow } from "../lib/api";
+import { useCached } from "../lib/useCached";
 
 function vtBadge(status: string): string {
   if (status === "malicious" || status === "suspicious") return "bad";
@@ -12,12 +12,8 @@ function decisionBadge(d: string): string {
 }
 
 export function Files() {
-  const [rows, setRows] = useState<FileRow[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.files().then(setRows).finally(() => setLoading(false));
-  }, []);
+  const { data, loading } = useCached<FileRow[]>("files", api.files, 30000);
+  const rows = data || [];
 
   return (
     <div className="panel">

@@ -4,8 +4,8 @@ import * as d3 from "d3";
 export interface GraphNode { id: string; group: number; }
 export interface GraphLink { source: string; target: string; }
 
-// Estrellas: blanco cálido, violeta, cian, magenta, esmeralda.
-const COLORS = ["#fef3c7", "#9d8bff", "#5fdcff", "#e98bf0", "#5ee6a8"];
+// Colores de estrellas reales por tipo espectral: azul, cian, blanco, ámbar, rojo, verde.
+const COLORS = ["#8ec5ff", "#5fdcff", "#ffffff", "#ffd479", "#ff7a99", "#5ee6a8"];
 
 // Grafo de conocimiento: nodos = notas de la bóveda, aristas = wikilinks [[...]].
 export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[] }) {
@@ -39,9 +39,11 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
         .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
         .on("end", (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
 
+    // El núcleo es la estrella; `color` alimenta el drop-shadow (glow) del CSS,
+    // así cada nodo irradia en su propio color.
     node.append("circle").attr("r", 5)
       .attr("fill", (d) => COLORS[d.group % COLORS.length])
-      .attr("stroke", "rgba(255,255,255,0.25)").attr("stroke-width", 1);
+      .style("color", (d) => COLORS[d.group % COLORS.length]);
     node.append("text").attr("dx", 8).attr("dy", "0.35em").text((d) => d.id);
 
     sim.on("tick", () => {

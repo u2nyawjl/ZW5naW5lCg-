@@ -1,34 +1,33 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, VaultEntry } from "../lib/api";
+import { useCached } from "../lib/useCached";
 import { Graph, GraphNode, GraphLink } from "../components/Graph";
 
 // Carpetas raíz de la bóveda que el árbol muestra.
 const ROOTS = ["system", "inbox", "documents", "heartbeat", "timeline"];
 
 export function Vault() {
-  const [tree, setTree] = useState<Record<string, VaultEntry[]>>({});
   const [content, setContent] = useState<string>("");
   const [active, setActive] = useState<string>("");
   const [tab, setTab] = useState<"graph" | "editor">("graph");
-  const [graph, setGraph] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>({ nodes: [], links: [] });
 
-  useEffect(() => {
-    (async () => {
-      const acc: Record<string, VaultEntry[]> = {};
-      for (const root of ROOTS) {
-        try {
-          const r = await api.vault(root);
-          if (r.type === "folder") acc[root] = r.entries.filter((e) => e.type === "file");
-        } catch { /* carpeta vacía */ }
-      }
-      setTree(acc);
-      buildGraph(acc);
-    })();
-  }, []);
+  // El árbol se cachea: pinta al instante y revalida en segundo plano.
+  const { data: tree } = useCached<Record<string, VaultEntry[]>>("vault:tree", async () => {
+    const acc: Record<string, VaultEntry[]> = {};
+    for (const root of ROOTS) {
+      try {
+        const r = await api.vault(root);
+        if (r.type === "folder") acc[root] = r.entries.filter((e) => e.type === "file");
+      } catch { /* carpeta vacía */ }
+    }
+    return acc;
+  }, 30000);
 
-  function buildGraph(acc: Record<string, VaultEntry[]>) {
+  const graph = buildGraph(tree || {});
+
+  function buildGraph(acc: Record<string, VaultEntry[]>): { nodes: GraphNode[]; links: GraphLink[] } {
     const nodes: GraphNode[] = [];
     const links: GraphLink[] = [];
     Object.entries(acc).forEach(([root, files], gi) => {
@@ -39,7 +38,7 @@ export function Vault() {
         links.push({ source: root, target: label });
       });
     });
-    setGraph({ nodes, links });
+    return { nodes, links };
   }
 
   async function open(path: string) {
@@ -65,7 +64,7 @@ export function Vault() {
               <li key={root}>
                 <div className="dir">▸ /{root}</div>
                 <ul className="tree">
-                  {(tree[root] || []).map((f) => (
+                  {(tree?.[root] || []).map((f) => (
                     <li key={f.path} className={`file ${active === f.path ? "active" : ""}`}
                         onClick={() => open(f.path)}>
                       ▪ {f.name}
