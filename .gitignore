@@ -6,6 +6,10 @@
 *.pem
 *.key
 *service-account*.json
+# Service account de Firebase: clave privada. El nombre que le pone Firebase
+# (…firebase-adminsdk-…json) no matchea el patrón de arriba.
+*firebase-adminsdk*.json
+*-adminsdk-*.json
 
 # Códigos de recuperación: con ellos se salta el 2FA y se toma la cuenta entera.
 # El repo del agente es PÚBLICO. Esto no puede acercarse a un commit.

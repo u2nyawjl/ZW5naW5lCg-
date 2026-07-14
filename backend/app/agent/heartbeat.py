@@ -25,10 +25,11 @@ from app.agent.intake import IntakeResult, process_inbox
 from app.comms.email import EmailClient
 from app.config import get_settings
 from app.core.events import Level, log_event
+from app.integrations.firestore import FirestoreClient
 from app.integrations.github import GitHubClient
 from app.integrations.google import GoogleClient
 from app.security.virustotal import VirusTotalClient
-from app.vault import timeline
+from app.vault import manifest, timeline
 
 
 @dataclass
@@ -119,6 +120,15 @@ async def beat() -> int:
     except Exception as exc:
         pulse.errors.append(f"timeline: {exc}")
 
+    # 4b. Espejo en Firestore para que el dashboard lea en vivo (sin polling).
+    if settings.firebase_service_account_b64 and settings.firebase_project_id:
+        try:
+            await _mirror_to_firestore(settings, pulse, vault)
+            print("✅ Firestore· estado, tareas y timeline reflejados")
+        except Exception as exc:
+            pulse.errors.append(f"firestore: {type(exc).__name__}: {exc}")
+            print(f"❌ Firestore· {exc}")
+
     # 5. Parte de estado en la bóveda
     try:
         await vault.write_note(
@@ -152,6 +162,33 @@ async def beat() -> int:
     for c in (brain, google, vault, engine, vt):
         await c.aclose()
     return 0
+
+
+async def _mirror_to_firestore(settings, pulse: Pulse, vault: GitHubClient) -> None:
+    fs = FirestoreClient(settings.firebase_service_account_b64, settings.firebase_project_id)
+    try:
+        await fs.set("status/current", {
+            "agent_core": "online",
+            "honeypot": "armed" if settings.honeypot_enabled else "disabled",
+            "trigger": pulse.trigger,
+            "at": pulse.at.isoformat(timespec="seconds"),
+            "relevant_emails": pulse.intake.relevant,
+            "reminders": len(pulse.reminders_sent),
+            "errors": len(pulse.errors),
+        })
+        # Tareas y archivos como documento único (cambian/desaparecen): estado completo.
+        await fs.set("tasks/current", {
+            "items": [{"number": t["number"], "title": t["title"]} for t in pulse.tasks],
+            "at": pulse.at.isoformat(timespec="seconds"),
+        })
+        files = await manifest.load(vault)
+        await fs.set("files/current", {"items": files[:100],
+                                       "at": pulse.at.isoformat(timespec="seconds")})
+        # Timeline: cada evento es un documento append-only.
+        for ev in pulse.events:
+            await fs.add("timeline", ev)
+    finally:
+        await fs.aclose()
 
 
 def _is_noteworthy(pulse: Pulse) -> bool:

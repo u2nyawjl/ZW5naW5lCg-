@@ -13,6 +13,7 @@ tenacity>=9.0,<10.0
 # --- Seguridad ---
 python-magic>=0.4.27,<1.0
 pyjwt>=2.9,<3.0
+cryptography>=43.0            # firma RS256 del JWT para autenticar en Firestore
 slowapi>=0.1.9,<1.0
 
 # --- Extracción de documentos ---

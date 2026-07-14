@@ -1,5 +1,5 @@
-import { api, LogEvent } from "../lib/api";
-import { useCached } from "../lib/useCached";
+import { LogEvent } from "../lib/api";
+import { useCollection } from "../lib/useFirestore";
 
 // Íconos por naturaleza del evento, como en el mock (emoji para no depender de FontAwesome).
 const ICONS: Record<string, string> = {
@@ -15,11 +15,9 @@ function icon(type: string): string {
 }
 
 export function Timeline() {
-  const { data, loading } = useCached<LogEvent[]>("timeline", async () => {
-    const [tl, runs] = await Promise.all([api.timeline(), api.logs()]);
-    return [...tl, ...runs.events].sort((a, b) => (a.ts < b.ts ? 1 : -1)).slice(0, 100);
-  }, 15000);
-  const events = data || [];
+  // En vivo desde Firestore: el heartbeat escribe y esto se actualiza solo.
+  const events = useCollection<LogEvent>("timeline", "ts", 100);
+  const loading = events.length === 0;
 
   return (
     <div className="panel">

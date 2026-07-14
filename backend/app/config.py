@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     gdrive_root_folder_id: str = ""
     google_calendar_id: str = "primary"
 
+    # --- Firestore ---
+    firebase_project_id: str = ""
+    firebase_service_account_b64: str = ""    # el JSON del service account, en base64
+
     # --- Correo ---
     gmail_address: str = ""
     owner_email: str = ""

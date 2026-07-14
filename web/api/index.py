@@ -16,10 +16,14 @@ Cualquier ruta fuera de esa lista se considera un sondeo y se reporta. Ver abajo
 
 import base64
 import hmac
+import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,6 +31,8 @@ from fastapi.responses import JSONResponse
 GITHUB_API = "https://api.github.com"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+IDENTITY_AUD = ("https://identitytoolkit.googleapis.com/"
+                "google.identity.identitytoolkit.v1.IdentityToolkit")
 
 AGENT_WAKE_SECRET = os.environ.get("AGENT_WAKE_SECRET", "")
 DASHBOARD_API_TOKEN = os.environ.get("DASHBOARD_API_TOKEN", "")
@@ -42,6 +48,8 @@ GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 GOOGLE_CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
+
+FIREBASE_SERVICE_ACCOUNT_B64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "")
 
 app = FastAPI(title="U2NyaWJl // gateway", docs_url=None, redoc_url=None)
 
@@ -90,6 +98,44 @@ async def dispatch(event_type: str, payload: dict) -> bool:
             json={"event_type": event_type, "client_payload": payload},
         )
         return resp.status_code == 204
+
+
+# ── Login: token del dashboard → sesión de Firebase ───────────────────────
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _mint_custom_token() -> str:
+    """Firma un custom token de Firebase con el service account.
+
+    El navegador lo canjea con signInWithCustomToken; las reglas de Firestore
+    exigen esa sesión para leer. Así el token del dashboard nunca toca Firestore
+    directamente y las reglas gatean todo acceso.
+    """
+    sa = json.loads(base64.b64decode(FIREBASE_SERVICE_ACCOUNT_B64))
+    now = int(time.time())
+    header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    payload = _b64url(json.dumps({
+        "iss": sa["client_email"],
+        "sub": sa["client_email"],
+        "aud": IDENTITY_AUD,
+        "uid": "dashboard",
+        "iat": now,
+        "exp": now + 3600,
+    }).encode())
+    signing_input = f"{header}.{payload}".encode()
+    key = serialization.load_pem_private_key(sa["private_key"].encode(), password=None)
+    signature = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+    return f"{header}.{payload}.{_b64url(signature)}"
+
+
+@app.post("/auth")
+async def auth(authorization: str | None = Header(default=None)):
+    require_dashboard(authorization)
+    if not FIREBASE_SERVICE_ACCOUNT_B64:
+        raise HTTPException(status_code=503, detail="Firebase no configurado")
+    return {"firebase_token": _mint_custom_token()}
 
 
 # ── Despertar ────────────────────────────────────────────────────────────
@@ -267,7 +313,8 @@ async def tasks(authorization: str | None = Header(default=None)):
 # reales y CUALQUIER otra cosa se trata como sondeo. No hay nada que filtrar, y
 # además cubre las rutas que no se me ocurrieron.
 
-REAL_ROUTES = {"/", "/wake", "/health", "/api/status", "/api/logs", "/api/tasks", "/api/calendar"}
+REAL_ROUTES = {"/", "/auth", "/wake", "/health", "/api/status", "/api/logs",
+               "/api/tasks", "/api/calendar"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta.

@@ -1,5 +1,5 @@
-import { api, FileRow } from "../lib/api";
-import { useCached } from "../lib/useCached";
+import { FileRow } from "../lib/api";
+import { useDoc } from "../lib/useFirestore";
 
 function vtBadge(status: string): string {
   if (status === "malicious" || status === "suspicious") return "bad";
@@ -12,8 +12,10 @@ function decisionBadge(d: string): string {
 }
 
 export function Files() {
-  const { data, loading } = useCached<FileRow[]>("files", api.files, 30000);
-  const rows = data || [];
+  // files/current es un documento con la lista completa del manifiesto.
+  const doc = useDoc<{ items: FileRow[] }>("files/current");
+  const rows = doc?.items || [];
+  const loading = doc === null;
 
   return (
     <div className="panel">
