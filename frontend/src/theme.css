@@ -218,6 +218,17 @@ a:hover { color: #9df0ff; }
 .markdown hr { border: none; margin: 16px 0; }
 .markdown ul, .markdown ol { padding-left: 22px; }
 
+/* La nota (o su editor) llena el alto disponible del panel. */
+.note-wrap { display: flex; flex-direction: column; min-height: 100%; }
+.note-wrap > .markdown { flex: 1; }
+.note-editor {
+  flex: 1; width: 100%; min-height: 340px; resize: none;
+  background: rgba(6, 8, 20, 0.85); color: #d7d8ee; border: 1px solid var(--border-lit);
+  border-radius: 12px; padding: 16px 18px; font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.6; outline: none;
+}
+.note-editor:focus { border-color: var(--cyan); }
+
 /* inbox / documents: papel claro (más blanco que el sunset anterior). */
 .markdown.paper {
   color: #34302a;
@@ -318,6 +329,12 @@ a:hover { color: #9df0ff; }
 .hb-col-h { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--cyan); margin-bottom: 10px; }
 .hb-stat { font-size: 12.5px; color: var(--muted); margin: 3px 0; }
 .hb-stat b { color: var(--text); font-family: var(--mono); font-size: 14px; margin-right: 4px; }
+.hb-services { padding: 14px; border-radius: 12px; background: var(--glass); border: 1px solid var(--border); }
+.svc { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; }
+.svc-name { color: var(--text); min-width: 132px; }
+.svc-detail { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+.dot.warn { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.dot.down { background: var(--rose); box-shadow: 0 0 8px var(--rose); }
 
 /* lista simple de carpeta (system/inbox como carpeta) */
 .folder-list { display: flex; flex-direction: column; gap: 2px; }

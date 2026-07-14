@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, VaultEntry } from "../lib/api";
+import { api, VaultEntry, LogEvent, ServiceRow } from "../lib/api";
 import { useCollection } from "../lib/useFirestore";
-import { LogEvent } from "../lib/api";
 
 const ICONS: Record<string, string> = {
   heartbeat: "🫀", "email.saved": "📨", "email.discarded": "🗑️",
@@ -119,6 +118,32 @@ function activityEcg(times: number[]): string {
   return d + ` L${W},${mid}`;
 }
 
+function svcDot(status: string): string {
+  return status === "ok" ? "on" : status === "warn" ? "warn" : "down";
+}
+function ServicesPanel() {
+  const [rows, setRows] = useState<ServiceRow[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.services().then((r) => alive && setRows(r.services)).catch(() => alive && setRows([]));
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div className="hb-services">
+      <div className="hb-col-h">Servicios</div>
+      {rows === null && <div className="hb-stat">Comprobando…</div>}
+      {rows?.length === 0 && <div className="hb-stat">Sin datos.</div>}
+      {rows?.map((s) => (
+        <div key={s.name} className="svc">
+          <span className={`dot ${svcDot(s.status)}`} />
+          <span className="svc-name">{s.name}</span>
+          <span className="svc-detail">{s.detail}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function HeartbeatMonitor() {
   const events = useCollection<LogEvent>("timeline", "ts", 300);
   const now = Date.now();
@@ -175,6 +200,7 @@ function HeartbeatMonitor() {
           );
         })}
       </div>
+      <ServicesPanel />
       <div className="hb-foot">Actividad real de las últimas 24 h · cada pico es un latido o suceso.</div>
     </div>
   );

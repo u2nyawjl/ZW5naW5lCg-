@@ -30,9 +30,19 @@ async function sha256(text: string): Promise<string> {
 
 export function Vault() {
   const [content, setContent] = useState("");
+  const [raw, setRaw] = useState("");        // contenido crudo del archivo (para editar)
   const [active, setActive] = useState("");
   const [hash, setHash] = useState("");
   const [tab, setTab] = useState<"graph" | "editor">("graph");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  // Editable: archivos de texto que se muestran como nota (no los tableros heartbeat/timeline).
+  const fileRoot = active.split("/")[0];
+  const canEdit = active.includes("/") && /\.(md|json)$/.test(active)
+    && !["heartbeat", "timeline"].includes(fileRoot);
 
   // Sin polling: el árbol se lee una vez (revalida solo al reentrar a la vista).
   const { data: tree } = useCached<Tree>("vault:tree", async () => {
@@ -53,9 +63,11 @@ export function Vault() {
     setActive(path);
     setTab("editor");
     setHash("");
+    setEditing(false);
     try {
       const r = await api.vault(path);
       if (r.type === "file") {
+        setRaw(r.content);
         setContent(path.endsWith(".json") ? "```json\n" + r.content + "\n```" : r.content);
         setHash(await sha256(r.content)); // hash de verificación del .md
       }
@@ -69,7 +81,27 @@ export function Vault() {
     setActive(root);
     setTab("editor");
     setContent("");
+    setRaw("");
     setHash("");
+    setEditing(false);
+  }
+
+  function startEdit() { setDraft(raw); setSaveErr(""); setEditing(true); }
+
+  async function save() {
+    setSaving(true);
+    setSaveErr("");
+    try {
+      await api.writeVault(active, draft);
+      setRaw(draft);
+      setContent(active.endsWith(".json") ? "```json\n" + draft + "\n```" : draft);
+      setHash(await sha256(draft));
+      setEditing(false);
+    } catch {
+      setSaveErr("No se pudo guardar (¿gateway actualizado?).");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -102,6 +134,21 @@ export function Vault() {
                 style={{ color: tab === "graph" ? "var(--cyan)" : "var(--muted)" }}>✦ Constelación</span>
           <span className="subtab" onClick={() => setTab("editor")}
                 style={{ color: tab === "editor" ? "var(--cyan)" : "var(--muted)" }}>◫ Nota</span>
+          {tab === "editor" && canEdit && (
+            <span style={{ marginLeft: "auto", display: "flex", gap: 14, alignItems: "center" }}>
+              {saveErr && <span className="err" style={{ fontSize: 11 }}>{saveErr}</span>}
+              {editing ? (
+                <>
+                  <span className="link-btn" onClick={saving ? undefined : save}>
+                    {saving ? "guardando…" : "guardar"}</span>
+                  <span className="subtab" style={{ color: "var(--muted)" }}
+                        onClick={() => setEditing(false)}>cancelar</span>
+                </>
+              ) : (
+                <span className="link-btn" onClick={startEdit}>✎ editar</span>
+              )}
+            </span>
+          )}
         </div>
         <div className="panel-body">
           {tab === "graph" ? (
@@ -110,14 +157,17 @@ export function Vault() {
                 : <div className="empty">Bóveda vacía.</div>}
             </div>
           ) : active ? (
-            <div>
-              {hash && (
+            <div className="note-wrap">
+              {hash && !editing && (
                 <div className="hashbar">
                   <span className="hashlabel">SHA-256</span>
                   <code>{hash}</code>
                 </div>
               )}
-              <NoteView active={active} content={content} tree={tree || {}} onOpen={open} />
+              {editing
+                ? <textarea className="note-editor" value={draft}
+                            onChange={(e) => setDraft(e.target.value)} spellCheck={false} autoFocus />
+                : <NoteView active={active} content={content} tree={tree || {}} onOpen={open} />}
             </div>
           ) : (
             <div className="empty">Elige una nota o carpeta del árbol.</div>

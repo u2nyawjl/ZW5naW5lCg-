@@ -61,11 +61,23 @@ export interface Person {
   email: string; name: string; role: string;
   first_seen?: string; last_seen?: string; sources?: string[];
 }
+export interface ServiceRow { name: string; status: string; detail: string; }
+
+export async function writeVault(path: string, content: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/api/vault/${path}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+}
 
 export const api = {
   status: () => req<StatusResp>("/api/status"),
   logs: () => req<{ events: LogEvent[] }>("/api/logs"),
+  services: () => req<{ services: ServiceRow[] }>("/api/services"),
   vault: (path: string) => req<VaultResp>(`/api/vault/${path}`),
+  writeVault,
   files: async (): Promise<FileRow[]> => {
     const r = await req<VaultResp>("/api/vault/files/manifest.json");
     if (r.type !== "file") return [];

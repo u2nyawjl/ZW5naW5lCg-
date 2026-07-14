@@ -57,7 +57,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in CORS_ALLOWED_ORIGINS.split(",") if o.strip()],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Authorization", "Content-Type", "X-Agent-Secret"],
 )
 
@@ -216,6 +216,106 @@ async def vault(path: str, authorization: str | None = Header(default=None)):
     }
 
 
+@app.put("/api/vault/{path:path}")
+async def vault_write(path: str, request: Request, authorization: str | None = Header(default=None)):
+    """Guarda una nota editada desde el dashboard. Solo .md/.json, sin traversal."""
+    require_dashboard(authorization)
+    if ".." in path or not path.endswith((".md", ".json")):
+        raise HTTPException(status_code=400, detail="Ruta no editable")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=400, detail="Falta 'content'")
+
+    # sha actual (necesario para sobrescribir); si no existe, se crea.
+    cur = await github(
+        f"/repos/{VAULT_REPO_OWNER}/{VAULT_REPO_NAME}/contents/{path}", VAULT_GITHUB_TOKEN
+    )
+    sha = cur.json().get("sha") if cur.status_code == 200 else None
+    payload = {"message": f"edit: {path} (dashboard)",
+               "content": base64.b64encode(content.encode()).decode(), "branch": "main"}
+    if sha:
+        payload["sha"] = sha
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        w = await client.put(
+            f"{GITHUB_API}/repos/{VAULT_REPO_OWNER}/{VAULT_REPO_NAME}/contents/{path}",
+            headers={"Authorization": f"Bearer {VAULT_GITHUB_TOKEN}",
+                     "Accept": "application/vnd.github+json",
+                     "X-GitHub-Api-Version": "2022-11-28"},
+            json=payload,
+        )
+    if w.status_code >= 300:
+        raise HTTPException(status_code=502, detail="No se pudo guardar en la bóveda")
+    return {"ok": True, "path": path}
+
+
+async def _firestore_ping() -> bool:
+    """Alcanzable Firestore con el service account (200 o 404 = vivo)."""
+    if not FIREBASE_SERVICE_ACCOUNT_B64:
+        return False
+    try:
+        sa = json.loads(base64.b64decode(FIREBASE_SERVICE_ACCOUNT_B64))
+        now = int(time.time())
+        header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        claim = _b64url(json.dumps({
+            "iss": sa["client_email"], "scope": "https://www.googleapis.com/auth/datastore",
+            "aud": GOOGLE_TOKEN_URL, "iat": now, "exp": now + 3600}).encode())
+        si = f"{header}.{claim}".encode()
+        key = serialization.load_pem_private_key(sa["private_key"].encode(), password=None)
+        jwt = f"{header}.{claim}.{_b64url(key.sign(si, padding.PKCS1v15(), hashes.SHA256()))}"
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            tok = await c.post(GOOGLE_TOKEN_URL, data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt})
+            if tok.status_code != 200:
+                return False
+            r = await c.get(
+                f"https://firestore.googleapis.com/v1/projects/{sa['project_id']}"
+                "/databases/(default)/documents/status/current",
+                headers={"Authorization": f"Bearer {tok.json()['access_token']}"})
+            return r.status_code in (200, 404)
+    except Exception:
+        return False
+
+
+@app.get("/api/services")
+async def services(authorization: str | None = Header(default=None)):
+    """Healthcheck de los servicios: GitHub API (uso de token), latidos, deploy, Firestore."""
+    require_dashboard(authorization)
+    out: list[dict] = []
+
+    rate = await github("/rate_limit", GITHUB_DISPATCH_TOKEN)
+    if rate.status_code == 200:
+        core = rate.json()["resources"]["core"]
+        out.append({"name": "GitHub API", "status": "ok",
+                    "detail": f"{core['remaining']}/{core['limit']} req restantes"})
+    else:
+        out.append({"name": "GitHub API", "status": "down", "detail": "sin respuesta"})
+
+    runs = await github(
+        f"/repos/{AGENT_REPO_OWNER}/{AGENT_REPO_NAME}/actions/runs",
+        GITHUB_DISPATCH_TOKEN, {"per_page": 25})
+    if runs.status_code == 200:
+        wr = runs.json().get("workflow_runs", [])
+        hb = next((x for x in wr if x.get("name") == "heartbeat"), None)
+        pg = next((x for x in wr if x.get("name") == "pages"), None)
+        if hb:
+            ok = hb["conclusion"] == "success"
+            out.append({"name": "Latidos (Actions)", "status": "ok" if ok else "warn",
+                        "detail": f"{hb['conclusion'] or hb['status']} · {hb['created_at'][11:16]} UTC"})
+        if pg:
+            ok = pg["conclusion"] == "success"
+            out.append({"name": "Deploy (Pages)", "status": "ok" if ok else "warn",
+                        "detail": f"{pg['conclusion'] or pg['status']} · {pg['created_at'][5:16]}"})
+
+    fs = await _firestore_ping()
+    out.append({"name": "Firestore", "status": "ok" if fs else "down",
+                "detail": "lectura en vivo" if fs else "sin respuesta"})
+    return {"services": out}
+
+
 @app.get("/api/logs")
 async def logs(authorization: str | None = Header(default=None), limit: int = 20):
     require_dashboard(authorization)
@@ -338,7 +438,7 @@ async def tasks(authorization: str | None = Header(default=None)):
 # además cubre las rutas que no se me ocurrieron.
 
 REAL_ROUTES = {"/", "/auth", "/wake", "/health", "/api/status", "/api/logs",
-               "/api/tasks", "/api/calendar", "/api/file"}
+               "/api/tasks", "/api/calendar", "/api/file", "/api/services"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta.
