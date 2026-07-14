@@ -120,12 +120,12 @@ export function App() {
         ))}
       </div>
       <div className="workspace">
-        <aside className="rail"><Timeline /></aside>
         <div className="main">
           {view === "vault" && <Vault />}
           {view === "files" && <Files />}
           {view === "calendar" && <Calendar />}
         </div>
+        <aside className="rail"><Timeline /></aside>
       </div>
     </div>
   );

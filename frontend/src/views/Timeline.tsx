@@ -21,7 +21,7 @@ export function Timeline() {
   return (
     <div className="panel">
       <div className="panel-header">
-        <span className="accent">Bitácora</span>
+        <span className="accent">Eventos</span>
         <span className="live"><span className="dot on" />EN VIVO</span>
       </div>
       <div className="panel-body">
