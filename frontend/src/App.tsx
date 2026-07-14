@@ -46,7 +46,7 @@ function Login({ onOk }: { onOk: () => void }) {
   return (
     <div className="login">
       <form onSubmit={submit}>
-        <h1>Chronicler</h1>
+        <h1>U2NyaWJl</h1>
         <div className="tag">COMMAND CENTER · ACCESO POR TOKEN</div>
         <input type="password" placeholder="DASHBOARD_API_TOKEN" value={value}
                onChange={(e) => setValue(e.target.value)} autoFocus />
@@ -68,7 +68,7 @@ function Hud({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="hud">
       <div>
-        <h1>✦ Chronicler</h1>
+        <h1>✦ U2NyaWJl</h1>
         <div className="sub">SECRETARIO Y DOCUMENTADOR · NEXUS</div>
       </div>
       <div className="stat">
