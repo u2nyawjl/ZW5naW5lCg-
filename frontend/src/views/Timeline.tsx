@@ -39,8 +39,8 @@ export function Timeline() {
   return (
     <div className="panel">
       <div className="panel-header">
-        <span>▸ Event Timeline</span>
-        <span className="pulse">● LIVE</span>
+        <span className="accent">Bitácora de eventos</span>
+        <span className="live"><span className="dot on" />EN VIVO</span>
       </div>
       <div className="panel-body">
         {loading && <div className="empty">Cargando…</div>}

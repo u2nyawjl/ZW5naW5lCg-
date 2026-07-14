@@ -35,8 +35,8 @@ export function Calendar() {
   return (
     <div className="panel">
       <div className="panel-header">
-        <span>▸ Calendario · Google Calendar del agente</span>
-        <span style={{ color: "#7a8a7a" }}>próximos 21 días</span>
+        <span className="accent">Calendario</span>
+        <span style={{ color: "var(--faint)", fontSize: 11 }}>Google Calendar · próximos 21 días</span>
       </div>
       <div className="panel-body">
         {loading && <div className="empty">Consultando el calendario…</div>}

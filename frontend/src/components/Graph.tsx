@@ -4,7 +4,8 @@ import * as d3 from "d3";
 export interface GraphNode { id: string; group: number; }
 export interface GraphLink { source: string; target: string; }
 
-const COLORS = ["#fff", "#0ff", "#f0f", "#ff0", "#0f0"];
+// Estrellas: blanco cálido, violeta, cian, magenta, esmeralda.
+const COLORS = ["#fef3c7", "#9d8bff", "#5fdcff", "#e98bf0", "#5ee6a8"];
 
 // Grafo de conocimiento: nodos = notas de la bóveda, aristas = wikilinks [[...]].
 export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[] }) {
@@ -30,7 +31,7 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
     );
 
     const link = g.append("g").selectAll("line").data(links).enter().append("line")
-      .attr("stroke", "rgba(0,255,0,0.3)");
+      .attr("stroke", "rgba(157,139,255,0.28)");
 
     const node = g.append("g").selectAll("g").data(nodes).enter().append("g")
       .call(d3.drag<any, any>()
@@ -40,7 +41,7 @@ export function Graph({ nodes, links }: { nodes: GraphNode[]; links: GraphLink[]
 
     node.append("circle").attr("r", 5)
       .attr("fill", (d) => COLORS[d.group % COLORS.length])
-      .attr("stroke", "#050505").attr("stroke-width", 1.5);
+      .attr("stroke", "rgba(255,255,255,0.25)").attr("stroke-width", 1);
     node.append("text").attr("dx", 8).attr("dy", "0.35em").text((d) => d.id);
 
     sim.on("tick", () => {

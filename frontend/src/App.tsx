@@ -57,18 +57,18 @@ function Hud({ status, onLogout }: { status: StatusResp | null; onLogout: () => 
   return (
     <div className="hud">
       <div>
-        <h1>🛡 U2NyaWJl // OVERSEER</h1>
-        <div className="sub">SECRETARIO Y DOCUMENTADOR · SERVERLESS</div>
+        <h1>✦ U2NyaWJl</h1>
+        <div className="sub">SECRETARIO Y DOCUMENTADOR · NEXUS</div>
       </div>
       <div className="stat">
-        <div style={{ color: "#0ff" }}>
-          CORE: <span className="pulse">{status?.agent_core?.toUpperCase() || "…"}</span>
-          {"  "}HONEYPOT: <span style={{ color: "#ff003c" }}>{status?.honeypot?.toUpperCase()}</span>
+        <div className="row">
+          <span><span className="dot on" />núcleo {status?.agent_core || "…"}</span>
+          <span><span className="dot armed" />guardián {status?.honeypot || "…"}</span>
         </div>
-        <div style={{ color: "#7a8a7a" }}>
-          {hb ? `último latido: ${hb.trigger} · ${hb.conclusion} · ${hb.at.slice(11, 16)}` : ""}
-          {"  "}{clock} UTC{"  "}
-          <span onClick={onLogout} style={{ cursor: "pointer", color: "#f0f" }}>[salir]</span>
+        <div className="row">
+          <span>{hb ? `último latido · ${hb.trigger} · ${hb.conclusion} · ${hb.at.slice(11, 16)}` : ""}</span>
+          <span style={{ fontFamily: "var(--mono)" }}>{clock} UTC</span>
+          <span className="link-btn" onClick={onLogout}>salir</span>
         </div>
       </div>
     </div>

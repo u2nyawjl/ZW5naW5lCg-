@@ -21,7 +21,10 @@ export function Files() {
 
   return (
     <div className="panel">
-      <div className="panel-header">▸ File Manager · Sistema de archivos del agente</div>
+      <div className="panel-header">
+        <span className="accent">Archivos</span>
+        <span style={{ color: "var(--faint)", fontSize: 11 }}>sistema de archivos del agente</span>
+      </div>
       <div className="panel-body">
         {loading && <div className="empty">Cargando…</div>}
         {!loading && rows.length === 0 && <div className="empty">Aún no hay archivos guardados.</div>}

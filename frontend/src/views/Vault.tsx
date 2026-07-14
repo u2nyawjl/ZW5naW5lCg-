@@ -58,7 +58,7 @@ export function Vault() {
   return (
     <div className="grid2">
       <div className="panel">
-        <div className="panel-header">▸ Obsidian Vault</div>
+        <div className="panel-header"><span className="accent">Bóveda</span></div>
         <div className="panel-body">
           <ul className="tree">
             {ROOTS.map((root) => (
@@ -79,9 +79,11 @@ export function Vault() {
       </div>
 
       <div className="panel">
-        <div className="panel-header" style={{ gap: 12 }}>
-          <span onClick={() => setTab("graph")} style={{ cursor: "pointer", color: tab === "graph" ? "#0f0" : "#7a8a7a" }}>◈ Grafo</span>
-          <span onClick={() => setTab("editor")} style={{ cursor: "pointer", color: tab === "editor" ? "#0f0" : "#7a8a7a" }}>▤ Nota</span>
+        <div className="panel-header" style={{ gap: 18 }}>
+          <span className="subtab" onClick={() => setTab("graph")}
+                style={{ color: tab === "graph" ? "var(--cyan)" : "var(--muted)" }}>✦ Constelación</span>
+          <span className="subtab" onClick={() => setTab("editor")}
+                style={{ color: tab === "editor" ? "var(--cyan)" : "var(--muted)" }}>◫ Nota</span>
         </div>
         <div className="panel-body">
           {tab === "graph" ? (
