@@ -62,6 +62,17 @@ export interface Person {
   first_seen?: string; last_seen?: string; sources?: string[];
 }
 export interface ServiceRow { name: string; status: string; detail: string; }
+export interface ChatMsg { role: "user" | "assistant"; content: string; }
+
+export async function chat(messages: ChatMsg[]): Promise<string> {
+  const resp = await fetch(`${API_BASE}/api/chat`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return (await resp.json()).reply;
+}
 
 export async function writeVault(path: string, content: string): Promise<void> {
   const resp = await fetch(`${API_BASE}/api/vault/${path}`, {

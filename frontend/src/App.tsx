@@ -8,14 +8,16 @@ import { Vault } from "./views/Vault";
 import { Files } from "./views/Files";
 import { Calendar } from "./views/Calendar";
 import { Personas } from "./views/Personas";
+import { Chat } from "./views/Chat";
 
 interface StatusDoc {
   agent_core: string; honeypot: string; trigger: string; at: string;
 }
 
-type View = "vault" | "files" | "personas" | "calendar";
+type View = "chat" | "vault" | "files" | "personas" | "calendar";
 
 const VIEWS: { id: View; label: string }[] = [
+  { id: "chat", label: "Chat" },
   { id: "vault", label: "Bóveda" },
   { id: "files", label: "Archivos" },
   { id: "personas", label: "Personas" },
@@ -96,7 +98,11 @@ function logout() {
 export function App() {
   const [authed, setAuthed] = useState(false);
   const [booting, setBooting] = useState(!!getToken());
-  const [view, setView] = useState<View>("vault");
+  const [view, setView] = useState<View>(() => {
+    const h = window.location.hash.replace(/^#\/?/, "");   // soporta .../#/chat
+    return (VIEWS.some((v) => v.id === h) ? h : "vault") as View;
+  });
+  useEffect(() => { window.location.hash = `/${view}`; }, [view]);
 
   // Al recargar, se reestablece la sesión Firebase con el token guardado.
   useEffect(() => {
@@ -123,6 +129,7 @@ export function App() {
       </div>
       <div className="workspace">
         <div className="main">
+          {view === "chat" && <Chat />}
           {view === "vault" && <Vault />}
           {view === "files" && <Files />}
           {view === "personas" && <Personas />}
