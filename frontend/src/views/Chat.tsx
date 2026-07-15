@@ -1,12 +1,39 @@
 import { useEffect, useRef, useState } from "react";
-import { ChatMsg, chat } from "../lib/api";
+import { ChatMsg, chat, listModels } from "../lib/api";
+
+// PlantUML se renderiza en cliente con el formato hex (~h): sin librería de deflate.
+function plantumlUrl(src: string): string {
+  const hex = Array.from(new TextEncoder().encode(src.trim()))
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `https://www.plantuml.com/plantuml/svg/~h${hex}`;
+}
+
+// Divide el texto en fragmentos de texto y bloques ```plantuml, renderizando estos como imagen.
+function MessageContent({ content }: { content: string }) {
+  const parts = content.split(/```(?:plantuml|puml)\s*([\s\S]*?)```/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1
+          ? <img key={i} className="uml" src={plantumlUrl(p)} alt="diagrama PlantUML"
+                 onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
+          : (p ? <span key={i}>{p}</span> : null)
+      )}
+    </>
+  );
+}
 
 export function Chat() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    listModels().then((r) => { setModels(r.models); setModel(r.default); }).catch(() => {});
+  }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
   async function send(e: React.FormEvent) {
@@ -18,7 +45,7 @@ export function Chat() {
     setInput("");
     setBusy(true);
     try {
-      const reply = await chat(next);
+      const reply = await chat(next, model || undefined);
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "⚠️ No pude responder ahora mismo." }]);
@@ -31,14 +58,20 @@ export function Chat() {
     <div className="panel">
       <div className="panel-header">
         <span className="accent">Chat con U2</span>
-        <span style={{ color: "var(--faint)", fontSize: 11 }}>con tu agenda y tareas en vivo</span>
+        {models.length > 0 && (
+          <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
+            {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
       </div>
       <div className="panel-body chat-body">
         {messages.length === 0 && (
-          <div className="empty">Escríbele a U2. Ej: «¿qué tengo esta semana?», «resume mis tareas».</div>
+          <div className="empty">
+            Escríbele a U2. Ej: «¿qué tengo esta semana?», «diagrama del flujo de un correo».
+          </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>{m.content}</div>
+          <div key={i} className={`bubble ${m.role}`}><MessageContent content={m.content} /></div>
         ))}
         {busy && <div className="bubble assistant typing">U2 está pensando…</div>}
         <div ref={endRef} />

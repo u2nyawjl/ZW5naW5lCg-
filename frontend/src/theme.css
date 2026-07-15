@@ -357,6 +357,16 @@ a:hover { color: #9df0ff; }
   background: var(--glass); border: 1px solid var(--border);
 }
 .bubble.typing { color: var(--faint); font-style: italic; }
+.bubble .uml {
+  display: block; max-width: 100%; margin: 8px 0 2px; border-radius: 10px;
+  background: #fff; padding: 8px;
+}
+.model-select {
+  background: rgba(8, 9, 24, 0.6); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px 8px; font-family: var(--mono); font-size: 10.5px;
+  outline: none; max-width: 200px; cursor: pointer;
+}
+.model-select:focus { border-color: var(--border-lit); }
 .chat-input { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); }
 .chat-input input {
   flex: 1; padding: 10px 14px; border-radius: 12px; background: rgba(8, 9, 24, 0.6);
