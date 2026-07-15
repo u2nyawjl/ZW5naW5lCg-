@@ -1,8 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, VaultEntry } from "../lib/api";
 import { useCached } from "../lib/useCached";
 import { Graph, GraphNode, GraphLink } from "../components/Graph";
 import { NoteView } from "./NoteView";
+
+// Caché de notas ya leídas (contenido + hash) para la sesión: abrir una nota es instantáneo.
+const noteCache = new Map<string, { content: string; hash: string }>();
 
 const ROOTS = ["system", "inbox", "documents", "heartbeat", "timeline"];
 
@@ -59,17 +62,39 @@ export function Vault() {
   // El grafo solo se reconstruye si el contenido del árbol cambia (no en cada render).
   const graph = useMemo(() => buildGraph(tree || {}), [JSON.stringify(tree)]);
 
+  // Precarga agresiva: al abrir la Bóveda se leen TODAS las notas y se precalcula su
+  // hash en paralelo, así al hacer clic el contenido y el SHA-256 ya están listos.
+  useEffect(() => {
+    if (!tree) return;
+    const paths = ROOTS.flatMap((r) => (tree[r] || []).map((f) => f.path));
+    paths.forEach(async (p) => {
+      if (noteCache.has(p)) return;
+      try {
+        const r = await api.vault(p);
+        if (r.type === "file") noteCache.set(p, { content: r.content, hash: await sha256(r.content) });
+      } catch { /* nota ilegible: se reintenta al abrirla */ }
+    });
+  }, [JSON.stringify(tree)]);
+
+  function show(path: string, text: string, h: string) {
+    setRaw(text);
+    setContent(path.endsWith(".json") ? "```json\n" + text + "\n```" : text);
+    setHash(h);
+  }
+
   async function open(path: string) {
     setActive(path);
     setTab("editor");
-    setHash("");
     setEditing(false);
+    const cached = noteCache.get(path);
+    if (cached) { show(path, cached.content, cached.hash); return; } // instantáneo
+    setHash("");
     try {
       const r = await api.vault(path);
       if (r.type === "file") {
-        setRaw(r.content);
-        setContent(path.endsWith(".json") ? "```json\n" + r.content + "\n```" : r.content);
-        setHash(await sha256(r.content)); // hash de verificación del .md
+        const h = await sha256(r.content);
+        noteCache.set(path, { content: r.content, hash: h });
+        show(path, r.content, h);
       }
     } catch {
       setContent("_No se pudo leer la nota._");
@@ -93,9 +118,9 @@ export function Vault() {
     setSaveErr("");
     try {
       await api.writeVault(active, draft);
-      setRaw(draft);
-      setContent(active.endsWith(".json") ? "```json\n" + draft + "\n```" : draft);
-      setHash(await sha256(draft));
+      const h = await sha256(draft);
+      noteCache.set(active, { content: draft, hash: h });
+      show(active, draft, h);
       setEditing(false);
     } catch {
       setSaveErr("No se pudo guardar (¿gateway actualizado?).");
