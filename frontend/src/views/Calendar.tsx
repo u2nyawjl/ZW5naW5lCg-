@@ -1,16 +1,18 @@
 import { api, CalEvent } from "../lib/api";
 import { useCached } from "../lib/useCached";
 
+const TZ = "America/Santiago"; // Nico opera en hora de Chile, sin importar el navegador
+
 function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString("es-CL", {
-    weekday: "long", day: "numeric", month: "long",
+    weekday: "long", day: "numeric", month: "long", timeZone: TZ,
   });
 }
 function fmtTime(ev: CalEvent): string {
   if (ev.all_day) return "todo el día";
-  const s = new Date(ev.start), e = new Date(ev.end);
-  const t = (d: Date) => d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
-  return `${t(s)} – ${t(e)}`;
+  const t = (iso: string) =>
+    new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
+  return `${t(ev.start)} – ${t(ev.end)}`;
 }
 
 export function Calendar() {
@@ -39,7 +41,7 @@ export function Calendar() {
         )}
         {Object.entries(byDay).map(([day, evs]) => (
           <div key={day}>
-            <div className="cal-day-label">{fmtDay(day + "T00:00:00")}</div>
+            <div className="cal-day-label">{fmtDay(day + "T12:00:00Z")}</div>
             {evs.map((ev) => (
               <a key={ev.id} href={ev.link} target="_blank" rel="noreferrer"
                  style={{ display: "block" }}>
