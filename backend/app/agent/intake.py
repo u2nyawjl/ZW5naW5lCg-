@@ -87,7 +87,11 @@ async def _event_exists(google: GoogleClient, title: str, start: datetime, all_d
         return False
     want = title.strip().lower()
     for ev in events:
-        if ev.get("summary", "").strip().lower() != want:
+        cand = ev.get("summary", "").strip().lower()
+        # Títulos "iguales" de forma laxa: el LLM varía el texto entre corridas
+        # ("Inducción Capstone" vs "Inducción Capstone 2026"), así que basta con que uno
+        # contenga al otro. El desempate real es el momento de inicio.
+        if not (want and cand and (want in cand or cand in want)):
             continue
         s = ev.get("start", {})
         est = _parse_dt(s.get("dateTime") or s.get("date") or "")
