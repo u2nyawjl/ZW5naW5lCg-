@@ -64,14 +64,26 @@ export interface Person {
 export interface ServiceRow { name: string; status: string; detail: string; }
 export interface ChatMsg { role: "user" | "assistant"; content: string; }
 
-export async function chat(messages: ChatMsg[], model?: string): Promise<string> {
+export interface ChatResp { reply: string; conversation_id: string; title: string; }
+export interface Conversation { id: string; title: string; updated: string; messages: ChatMsg[]; }
+
+export async function chat(messages: ChatMsg[], model?: string, conversationId?: string): Promise<ChatResp> {
   const resp = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, model }),
+    body: JSON.stringify({ messages, model, conversation_id: conversationId }),
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return (await resp.json()).reply;
+  return resp.json();
+}
+
+export async function convAction(action: "delete" | "rename", id: string, title?: string): Promise<void> {
+  const resp = await fetch(`${API_BASE}/api/conv`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action, id, title }),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 }
 
 export async function listModels(): Promise<{ models: string[]; default: string }> {

@@ -397,6 +397,30 @@ a:hover { color: #9df0ff; }
 }
 .chat-input button:disabled { opacity: 0.5; cursor: default; }
 
+/* Registro de conversaciones (estilo ChatGPT/Gemini) */
+.chat-wrap { display: flex; gap: 14px; height: 100%; }
+.chat-main { flex: 1; min-width: 0; }
+.conv-list { width: 220px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.conv-new {
+  padding: 9px; border-radius: 10px; border: 1px dashed var(--border-lit); background: transparent;
+  color: var(--muted); cursor: pointer; font-family: var(--sans); font-size: 12px; margin-bottom: 4px;
+}
+.conv-new:hover { color: var(--text); background: rgba(157, 139, 255, 0.08); }
+.conv-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 8px 10px; border-radius: 10px; cursor: pointer; font-size: 12px; color: var(--muted);
+}
+.conv-item:hover { background: rgba(157, 139, 255, 0.08); color: var(--text); }
+.conv-item.active { background: rgba(95, 220, 255, 0.10); color: var(--cyan); }
+.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.conv-actions { display: none; gap: 8px; flex-shrink: 0; font-size: 11px; }
+.conv-item:hover .conv-actions { display: flex; }
+.conv-actions span:hover { opacity: 0.65; }
+@media (max-width: 700px) {
+  .chat-wrap { flex-direction: column; }
+  .conv-list { width: 100%; flex-direction: row; overflow-x: auto; }
+}
+
 /* Buscador (Personas) */
 .search {
   width: 100%; margin-bottom: 12px; padding: 9px 13px;

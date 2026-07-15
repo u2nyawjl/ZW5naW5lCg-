@@ -25,7 +25,7 @@ export function useCollection<T = any>(name: string, field: string, max = 100): 
   useEffect(() => {
     const q = query(collection(db, name), orderBy(field, "desc"), limit(max));
     return onSnapshot(q, (snap) => {
-      const v = snap.docs.map((d) => d.data() as T);
+      const v = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as T);
       setRows(v);
       writeCache("col:" + name, v);
     });

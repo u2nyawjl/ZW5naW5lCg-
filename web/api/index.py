@@ -729,7 +729,66 @@ async def chat(request: Request, authorization: str | None = Header(default=None
     if reply is None:
         reply = choice.get("content") or "Consulté los archivos pero no cerré la respuesta; reformula, por favor."
     await _bump_chat_usage(up, uc, model)
-    return {"reply": reply}
+    cid, title = await _persist_conversation(str(body.get("conversation_id") or ""), history, reply)
+    return {"reply": reply, "conversation_id": cid, "title": title}
+
+
+async def _persist_conversation(cid: str, history: list, reply: str) -> tuple[str, str]:
+    """Guarda la conversación en Firestore (como ChatGPT/Gemini): título + mensajes."""
+    msgs = history + [{"role": "assistant", "content": reply}]
+    cid = (cid or "").strip() or f"c{int(time.time() * 1000)}"
+    title = ""
+    try:
+        existing = await _fs_request("GET", f"conversations/{cid}")
+        if existing is not None and existing.status_code == 200:
+            title = existing.json().get("fields", {}).get("title", {}).get("stringValue", "")
+    except Exception:
+        pass
+    if not title:
+        first = next((str(m.get("content", "")) for m in history if m.get("role") == "user"), "")
+        title = (first[:48].strip() or "Conversación")
+    fields = {
+        "title": {"stringValue": title},
+        "updated": {"stringValue": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+        "messages": {"arrayValue": {"values": [
+            {"mapValue": {"fields": {
+                "role": {"stringValue": str(m.get("role", "user"))},
+                "content": {"stringValue": str(m.get("content", ""))[:6000]},
+            }}} for m in msgs[-100:]
+        ]}},
+    }
+    try:
+        await _fs_request("PATCH", f"conversations/{cid}", {"fields": fields})
+    except Exception:
+        pass
+    return cid, title
+
+
+@app.post("/api/conv")
+async def conv(request: Request, authorization: str | None = Header(default=None)):
+    """Renombra o borra una conversación guardada."""
+    require_dashboard(authorization)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cid = str(body.get("id", "")).strip()
+    action = body.get("action")
+    if not cid or "/" in cid or ".." in cid:
+        raise HTTPException(status_code=400, detail="id inválido")
+    if action == "delete":
+        await _fs_request("DELETE", f"conversations/{cid}")
+        return {"ok": True}
+    if action == "rename":
+        title = (str(body.get("title", "")).strip()[:60]) or "Conversación"
+        await _fs_request(
+            "PATCH",
+            f"conversations/{cid}?updateMask.fieldPaths=title&updateMask.fieldPaths=updated",
+            {"fields": {"title": {"stringValue": title},
+                        "updated": {"stringValue": datetime.now(timezone.utc).isoformat(timespec='seconds')}}},
+        )
+        return {"ok": True, "title": title}
+    raise HTTPException(status_code=400, detail="acción desconocida")
 
 
 @app.post("/api/latex")
@@ -759,7 +818,7 @@ async def latex(request: Request, authorization: str | None = Header(default=Non
 
 REAL_ROUTES = {"/", "/auth", "/wake", "/health", "/api/status", "/api/logs",
                "/api/tasks", "/api/calendar", "/api/file", "/api/services", "/api/chat",
-               "/api/models", "/api/latex"}
+               "/api/models", "/api/latex", "/api/conv"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta.

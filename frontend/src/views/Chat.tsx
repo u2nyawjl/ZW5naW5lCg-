@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChatMsg, chat, compileLatex, listModels } from "../lib/api";
+import { ChatMsg, Conversation, chat, compileLatex, convAction, listModels } from "../lib/api";
+import { useCollection } from "../lib/useFirestore";
 import { plantumlUrl } from "../lib/plantuml";
 
 function LatexBlock({ code }: { code: string }) {
@@ -7,8 +8,7 @@ function LatexBlock({ code }: { code: string }) {
   async function open() {
     setState("busy");
     try {
-      const pdf = await compileLatex(code);
-      window.open(URL.createObjectURL(pdf), "_blank");
+      window.open(URL.createObjectURL(await compileLatex(code)), "_blank");
       setState("idle");
     } catch { setState("error"); }
   }
@@ -25,7 +25,6 @@ function LatexBlock({ code }: { code: string }) {
   );
 }
 
-// Trocea el mensaje en texto / diagramas PlantUML / bloques LaTeX.
 function MessageContent({ content }: { content: string }) {
   const re = /```(plantuml|puml|latex|tex)\s*([\s\S]*?)```/g;
   const out: React.ReactNode[] = [];
@@ -43,6 +42,8 @@ function MessageContent({ content }: { content: string }) {
 }
 
 export function Chat() {
+  const conversations = useCollection<Conversation>("conversations", "updated", 50);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,6 +56,25 @@ export function Chat() {
   }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
+  function openConv(c: Conversation) {
+    setActiveId(c.id);
+    setMessages(c.messages || []);
+  }
+  function newConv() { setActiveId(null); setMessages([]); }
+
+  async function remove(c: Conversation, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm(`¿Borrar «${c.title}»?`)) return;
+    try { await convAction("delete", c.id); } catch { /* ignora */ }
+    if (activeId === c.id) newConv();
+  }
+
+  async function rename(c: Conversation, e: React.MouseEvent) {
+    e.stopPropagation();
+    const t = prompt("Nuevo nombre:", c.title);
+    if (t && t.trim()) { try { await convAction("rename", c.id, t.trim()); } catch { /* ignora */ } }
+  }
+
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
@@ -64,8 +84,9 @@ export function Chat() {
     setInput("");
     setBusy(true);
     try {
-      const reply = await chat(next, model || undefined);
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      const r = await chat(next, model || undefined, activeId || undefined);
+      setActiveId(r.conversation_id);
+      setMessages((m) => [...m, { role: "assistant", content: r.reply }]);
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "⚠️ No pude responder ahora mismo." }]);
     } finally {
@@ -74,32 +95,45 @@ export function Chat() {
   }
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="accent">Chat con U2</span>
-        {models.length > 0 && (
-          <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        )}
-      </div>
-      <div className="panel-body chat-body">
-        {messages.length === 0 && (
-          <div className="empty">
-            Escríbele a U2. Ej: «¿qué tengo esta semana?», «diagrama del flujo de un correo».
+    <div className="chat-wrap">
+      <aside className="conv-list">
+        <button className="conv-new" onClick={newConv}>＋ Nueva conversación</button>
+        {conversations.map((c) => (
+          <div key={c.id} className={`conv-item ${activeId === c.id ? "active" : ""}`} onClick={() => openConv(c)}>
+            <span className="conv-title">{c.title}</span>
+            <span className="conv-actions">
+              <span onClick={(e) => rename(c, e)} title="Renombrar">✎</span>
+              <span onClick={(e) => remove(c, e)} title="Borrar">🗑</span>
+            </span>
           </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}><MessageContent content={m.content} /></div>
         ))}
-        {busy && <div className="bubble assistant typing">U2 está pensando…</div>}
-        <div ref={endRef} />
+      </aside>
+
+      <div className="panel chat-main">
+        <div className="panel-header">
+          <span className="accent">Chat con U2</span>
+          {models.length > 0 && (
+            <select className="model-select" value={model} onChange={(e) => setModel(e.target.value)}>
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
+        </div>
+        <div className="panel-body chat-body">
+          {messages.length === 0 && (
+            <div className="empty">Escríbele a U2. Ej: «¿qué tengo esta semana?», «diagrama del flujo de un correo».</div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`bubble ${m.role}`}><MessageContent content={m.content} /></div>
+          ))}
+          {busy && <div className="bubble assistant typing">U2 está pensando…</div>}
+          <div ref={endRef} />
+        </div>
+        <form className="chat-input" onSubmit={send}>
+          <input value={input} onChange={(e) => setInput(e.target.value)}
+                 placeholder="Escribe un mensaje…" autoFocus />
+          <button type="submit" disabled={busy || !input.trim()}>Enviar</button>
+        </form>
       </div>
-      <form className="chat-input" onSubmit={send}>
-        <input value={input} onChange={(e) => setInput(e.target.value)}
-               placeholder="Escribe un mensaje…" autoFocus />
-        <button type="submit" disabled={busy || !input.trim()}>Enviar</button>
-      </form>
     </div>
   );
 }
