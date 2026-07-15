@@ -27,6 +27,8 @@ class Brain:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self._client = client
+        # Uso de tokens acumulado en esta instancia (el heartbeat lo vuelca a Firestore).
+        self.usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
 
     async def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -57,7 +59,13 @@ class Brain:
         )
         # 429 = cuota agotada. tenacity reintenta con backoff; si persiste, propaga.
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        u = data.get("usage") or {}
+        self.usage["prompt_tokens"] += int(u.get("prompt_tokens", 0) or 0)
+        self.usage["completion_tokens"] += int(u.get("completion_tokens", 0) or 0)
+        self.usage["total_tokens"] += int(u.get("total_tokens", 0) or 0)
+        self.usage["calls"] += 1
+        return data["choices"][0]["message"]["content"]
 
     async def classify_email(
         self, sender: str, subject: str, body: str, mission: str

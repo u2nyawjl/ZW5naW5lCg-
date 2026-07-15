@@ -516,7 +516,85 @@ async def _chat_context() -> str:
             lines += [f"- {p.get('name')} ({p.get('role')})" for p in list(d.values())[:60]]
     except Exception:
         pass
+    # Últimos eventos de la bitácora (para "¿qué pasó?", "¿llegó algún correo?").
+    try:
+        r = await github(f"/repos/{VAULT_REPO_OWNER}/{VAULT_REPO_NAME}/contents/timeline", VAULT_GITHUB_TOKEN)
+        files = sorted([e["path"] for e in r.json() if e.get("type") == "file"]) if r.status_code == 200 else []
+        if files:
+            evs = json.loads(await _vault_read(files[-1]) or "[]")  # el día más reciente
+            if evs:
+                lines.append("Últimos eventos (bitácora, más reciente primero):")
+                lines += [f"- {e.get('ts', '')[11:16]} {e.get('type', '')}: {str(e.get('message', ''))[:70]}"
+                          for e in evs[:12]]
+    except Exception:
+        pass
     return "\n".join(lines) or "(sin eventos ni tareas cargados)"
+
+
+# ── Uso de tokens (Firestore, escrito también por el heartbeat) ────────────
+
+async def _fs_request(method: str, suffix: str, json_body: dict | None = None):
+    if not FIREBASE_SERVICE_ACCOUNT_B64:
+        return None
+    sa = json.loads(base64.b64decode(FIREBASE_SERVICE_ACCOUNT_B64))
+    now = int(time.time())
+    header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    claim = _b64url(json.dumps({"iss": sa["client_email"],
+        "scope": "https://www.googleapis.com/auth/datastore", "aud": GOOGLE_TOKEN_URL,
+        "iat": now, "exp": now + 3600}).encode())
+    si = f"{header}.{claim}".encode()
+    key = serialization.load_pem_private_key(sa["private_key"].encode(), password=None)
+    jwt = f"{header}.{claim}.{_b64url(key.sign(si, padding.PKCS1v15(), hashes.SHA256()))}"
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        tok = await c.post(GOOGLE_TOKEN_URL, data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt})
+        if tok.status_code != 200:
+            return None
+        base = (f"https://firestore.googleapis.com/v1/projects/{sa['project_id']}"
+                "/databases/(default)/documents")
+        return await c.request(method, f"{base}/{suffix}",
+                               headers={"Authorization": f"Bearer {tok.json()['access_token']}"},
+                               json=json_body)
+
+
+async def _bump_chat_usage(prompt: int, completion: int, model: str) -> None:
+    total = prompt + completion
+    if total <= 0:
+        return
+    try:
+        r = await _fs_request("GET", "usage/current")
+        cur = {}
+        if r is not None and r.status_code == 200:
+            cur = {k: (int(v["integerValue"]) if "integerValue" in v else v.get("stringValue"))
+                   for k, v in r.json().get("fields", {}).items()}
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        same = cur.get("today_date") == today
+
+        def n(key):
+            try:
+                return int(cur.get(key) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        fields = {
+            "prompt_tokens": n("prompt_tokens") + prompt,
+            "completion_tokens": n("completion_tokens") + completion,
+            "total_tokens": n("total_tokens") + total,
+            "calls": n("calls") + 1,
+            "chat_tokens": n("chat_tokens") + total,
+            "agent_tokens": n("agent_tokens"),
+            "today_date": today,
+            "today_tokens": (n("today_tokens") if same else 0) + total,
+            "model": model,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
+        def val(v):
+            return {"integerValue": str(v)} if isinstance(v, int) else {"stringValue": str(v)}
+
+        await _fs_request("PATCH", "usage/current", {"fields": {k: val(v) for k, v in fields.items()}})
+    except Exception:
+        pass
 
 
 # Herramientas que el chat puede invocar para navegar los archivos del agente.
@@ -621,6 +699,8 @@ async def chat(request: Request, authorization: str | None = Header(default=None
 
     use_tools = True
     choice: dict = {}
+    reply: str | None = None
+    up = uc = 0  # tokens acumulados (prompt / completion) de todas las rondas
     for _ in range(3):  # máx. 3 rondas de tools antes de responder
         r = await _call(use_tools)
         if r.status_code != 200:
@@ -628,10 +708,15 @@ async def chat(request: Request, authorization: str | None = Header(default=None
                 use_tools = False
                 continue
             raise HTTPException(status_code=502, detail=f"El cerebro no respondió ({r.status_code})")
-        choice = r.json()["choices"][0]["message"]
+        bj = r.json()
+        u = bj.get("usage") or {}
+        up += int(u.get("prompt_tokens", 0) or 0)
+        uc += int(u.get("completion_tokens", 0) or 0)
+        choice = bj["choices"][0]["message"]
         calls = choice.get("tool_calls")
         if not calls:
-            return {"reply": choice.get("content") or "(sin respuesta)"}
+            reply = choice.get("content") or "(sin respuesta)"
+            break
         msgs.append(choice)
         for tc in calls[:4]:
             try:
@@ -640,7 +725,11 @@ async def chat(request: Request, authorization: str | None = Header(default=None
                 args = {}
             msgs.append({"role": "tool", "tool_call_id": tc.get("id"),
                          "content": await _run_tool(tc["function"]["name"], args)})
-    return {"reply": choice.get("content") or "Consulté los archivos pero no cerré la respuesta; reformula, por favor."}
+
+    if reply is None:
+        reply = choice.get("content") or "Consulté los archivos pero no cerré la respuesta; reformula, por favor."
+    await _bump_chat_usage(up, uc, model)
+    return {"reply": reply}
 
 
 @app.post("/api/latex")

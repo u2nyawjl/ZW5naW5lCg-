@@ -44,6 +44,24 @@ def _to_fields(d: dict) -> dict:
     return {k: _to_value(v) for k, v in d.items()}
 
 
+def _from_value(v: dict):
+    if "integerValue" in v:
+        return int(v["integerValue"])
+    if "doubleValue" in v:
+        return v["doubleValue"]
+    if "booleanValue" in v:
+        return v["booleanValue"]
+    if "stringValue" in v:
+        return v["stringValue"]
+    if "nullValue" in v:
+        return None
+    if "mapValue" in v:
+        return {k: _from_value(x) for k, x in v["mapValue"].get("fields", {}).items()}
+    if "arrayValue" in v:
+        return [_from_value(x) for x in v["arrayValue"].get("values", [])]
+    return None
+
+
 class FirestoreClient:
     def __init__(self, service_account_b64: str, project_id: str,
                  client: httpx.AsyncClient | None = None):
@@ -101,6 +119,18 @@ class FirestoreClient:
             json={"fields": _to_fields(fields)},
         )
         resp.raise_for_status()
+
+    async def get(self, path: str) -> dict | None:
+        """Lee un documento; None si no existe."""
+        client = await self._http()
+        resp = await client.get(
+            f"{self._base}/{path}",
+            headers={"Authorization": f"Bearer {await self._token()}"},
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return {k: _from_value(v) for k, v in resp.json().get("fields", {}).items()}
 
     async def add(self, collection: str, fields: dict) -> None:
         """Crea un documento con ID automático (para logs append-only)."""

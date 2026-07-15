@@ -125,7 +125,7 @@ async def beat() -> int:
     # 4b. Espejo en Firestore para que el dashboard lea en vivo (sin polling).
     if settings.firebase_service_account_b64 and settings.firebase_project_id:
         try:
-            await _mirror_to_firestore(settings, pulse, vault)
+            await _mirror_to_firestore(settings, pulse, vault, brain)
             print("✅ Firestore· estado, tareas y timeline reflejados")
         except Exception as exc:
             pulse.errors.append(f"firestore: {type(exc).__name__}: {exc}")
@@ -166,7 +166,7 @@ async def beat() -> int:
     return 0
 
 
-async def _mirror_to_firestore(settings, pulse: Pulse, vault: GitHubClient) -> None:
+async def _mirror_to_firestore(settings, pulse: Pulse, vault: GitHubClient, brain: Brain) -> None:
     fs = FirestoreClient(settings.firebase_service_account_b64, settings.firebase_project_id)
     try:
         await fs.set("status/current", {
@@ -190,6 +190,24 @@ async def _mirror_to_firestore(settings, pulse: Pulse, vault: GitHubClient) -> N
         directory = await people.load(vault)
         await fs.set("people/current", {"items": people.as_list(directory)[:500],
                                         "at": pulse.at.isoformat(timespec="seconds")})
+        # Uso de tokens del cerebro (acumulado; el chat suma aparte desde el gateway).
+        if brain.usage["total_tokens"] > 0:
+            cur = await fs.get("usage/current") or {}
+            today = pulse.at.strftime("%Y-%m-%d")
+            same_day = cur.get("today_date") == today
+            await fs.set("usage/current", {
+                "prompt_tokens": int(cur.get("prompt_tokens", 0)) + brain.usage["prompt_tokens"],
+                "completion_tokens": int(cur.get("completion_tokens", 0)) + brain.usage["completion_tokens"],
+                "total_tokens": int(cur.get("total_tokens", 0)) + brain.usage["total_tokens"],
+                "calls": int(cur.get("calls", 0)) + brain.usage["calls"],
+                "agent_tokens": int(cur.get("agent_tokens", 0)) + brain.usage["total_tokens"],
+                "chat_tokens": int(cur.get("chat_tokens", 0)),
+                "today_date": today,
+                "today_tokens": (int(cur.get("today_tokens", 0)) if same_day else 0) + brain.usage["total_tokens"],
+                "model": settings.github_models_model,
+                "updated_at": pulse.at.isoformat(timespec="seconds"),
+            })
+
         # Timeline: cada evento es un documento append-only.
         for ev in pulse.events:
             await fs.add("timeline", ev)

@@ -9,12 +9,13 @@ import { Files } from "./views/Files";
 import { Calendar } from "./views/Calendar";
 import { Personas } from "./views/Personas";
 import { Chat } from "./views/Chat";
+import { Usage } from "./views/Usage";
 
 interface StatusDoc {
   agent_core: string; honeypot: string; trigger: string; at: string;
 }
 
-type View = "chat" | "vault" | "files" | "personas" | "calendar";
+type View = "chat" | "vault" | "files" | "personas" | "calendar" | "usage";
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "chat", label: "Chat" },
@@ -22,6 +23,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: "files", label: "Archivos" },
   { id: "personas", label: "Personas" },
   { id: "calendar", label: "Calendario" },
+  { id: "usage", label: "Uso" },
 ];
 
 function Login({ onOk }: { onOk: () => void }) {
@@ -134,6 +136,7 @@ export function App() {
           {view === "files" && <Files />}
           {view === "personas" && <Personas />}
           {view === "calendar" && <Calendar />}
+          {view === "usage" && <Usage />}
         </div>
         <aside className="rail"><Timeline /></aside>
       </div>

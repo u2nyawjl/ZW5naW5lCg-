@@ -407,6 +407,20 @@ a:hover { color: #9df0ff; }
 .search:focus { border-color: var(--border-lit); }
 .search::placeholder { color: var(--faint); }
 
+/* Uso de tokens */
+.usage-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stat-tile {
+  padding: 18px 14px; border-radius: 14px; text-align: center;
+  background: var(--glass); border: 1px solid var(--border);
+}
+.stat-tile .n {
+  font-family: var(--mono); font-size: 26px; font-weight: 700;
+  background: var(--aurora); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat-tile .l { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+.usage-note { margin-top: 14px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+
 /* Avatares (Personas) */
 .person-cell { display: flex; align-items: center; gap: 10px; }
 .avatar {
