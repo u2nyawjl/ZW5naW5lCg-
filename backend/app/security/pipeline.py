@@ -16,6 +16,7 @@ from app.extractors import csv as csv_x
 from app.extractors import pdf as pdf_x
 from app.extractors import pptx as pptx_x
 from app.extractors import registry
+from app.extractors import unstructured_api
 from app.extractors import xlsx as xlsx_x
 from app.security.hashing import md5_bytes, sha256_bytes
 from app.security.models import Decision, FileReport, VTStatus, VTVerdict
@@ -35,6 +36,8 @@ async def ingest_file(
     max_uncompressed_mb: int = 200,
     max_pdf_pages: int = 500,
     unknown_policy: str = "parse_flagged",
+    unstructured_url: str = "",
+    unstructured_key: str = "",
 ) -> FileReport:
     extension = Path(filename).suffix.lower()
     warnings: list[str] = []
@@ -93,6 +96,18 @@ async def ingest_file(
         content, mime, max_uncompressed_mb, max_pdf_pages
     )
     report.warnings.extend(extraction_warnings)
+
+    # Si el extractor local no sacó texto (formato sin soporte o falló) y hay Unstructured
+    # configurado, se intenta con la API: cubre pptx, docx, imágenes, html y más.
+    if not report.text and unstructured_key and not registry.is_executable(mime, extension):
+        text, warns = await unstructured_api.extract(
+            content, filename, mime, unstructured_url, unstructured_key
+        )
+        if text:
+            report.text = text
+            report.warnings.append("Texto extraído por Unstructured")
+        report.warnings.extend(warns)
+
     report.text_chars = len(report.text or "")
 
     log_event(

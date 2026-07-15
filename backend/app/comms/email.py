@@ -30,6 +30,7 @@ class Message:
     # destinatarios ORIGINALES no están aquí sino dentro del cuerpo citado.
     recipients: list[tuple[str, str]] = field(default_factory=list)
     message_id: str = ""
+    raw: bytes = b""  # el correo íntegro (RFC822), para archivarlo intacto
 
 
 class EmailClient:
@@ -120,7 +121,7 @@ class EmailClient:
 
         return Message(uid=uid, sender=sender, subject=subject, body=body,
                        attachments=attachments, from_name=from_name,
-                       recipients=recipients, message_id=message_id)
+                       recipients=recipients, message_id=message_id, raw=raw)
 
     async def fetch(self, label: str = "", unread_only: bool = True) -> list[Message]:
         return await asyncio.to_thread(self._fetch_sync, label, unread_only)

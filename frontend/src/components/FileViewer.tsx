@@ -10,7 +10,8 @@ export function FileViewer({ file, onClose }: { file: FileRow; onClose: () => vo
   const driveId = file.drive_id || driveIdFromLink(file.drive_link);
   const isPdf = file.mime === "application/pdf";
   const isCsv = file.mime.includes("csv") || file.filename.endsWith(".csv");
-  const isText = file.mime.startsWith("text/") || file.filename.match(/\.(txt|md|json)$/);
+  const isText = file.mime.startsWith("text/") || file.mime.startsWith("message/")
+    || !!file.filename.match(/\.(txt|md|json|eml)$/);
   const isImage = file.mime.startsWith("image/");
 
   useEffect(() => {

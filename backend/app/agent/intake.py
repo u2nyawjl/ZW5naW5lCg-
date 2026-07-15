@@ -187,6 +187,8 @@ async def _process_one(
             max_uncompressed_mb=settings.max_uncompressed_mb,
             max_pdf_pages=settings.max_pdf_pages,
             unknown_policy=settings.vt_unknown_policy,
+            unstructured_url=settings.unstructured_api_url,
+            unstructured_key=settings.unstructured_api_key,
         )
 
         drive_link = ""
@@ -221,9 +223,31 @@ async def _process_one(
         await manifest.add(vault, entry)
         stored_files.append(entry)
 
+    # Guardar el correo ÍNTEGRO (RFC822) junto al resumen, como adjunto archivado.
     inbox_note = _inbox_path(msg)
+    email_archive: dict | None = None
+    if msg.raw:
+        try:
+            correos_folder = await google.ensure_folder("correos")
+            eml_name = f"{_clean_title(msg.subject)}.eml"
+            up = await google.upload(eml_name, msg.raw, mime="message/rfc822", folder_id=correos_folder)
+            email_sha = hashlib.sha256(msg.raw).hexdigest()
+            email_archive = {"filename": eml_name, "sha256": email_sha, "drive_link": up.link}
+            await manifest.add(vault, {
+                "filename": eml_name, "sha256": email_sha, "mime": "message/rfc822",
+                "size_bytes": len(msg.raw), "source": "email", "ingested_at": now.isoformat(),
+                "vt_status": "n/a", "vt_detections": "", "decision": "archivado",
+                "drive_link": up.link, "drive_id": up.id, "note_path": inbox_note,
+                "text_chars": 0, "kind": "email",
+            })
+            result.events.append(timeline.event(
+                "email.archived", f"Correo íntegro guardado: {eml_name}", sha256=email_sha[:12],
+            ))
+        except Exception as exc:
+            result.errors.append(f"archivo correo: {type(exc).__name__}: {exc}")
+
     await vault.write_note(
-        inbox_note, _render_inbox_note(msg, verdict, stored_files, now),
+        inbox_note, _render_inbox_note(msg, verdict, stored_files, now, email_archive),
         f"inbox: {msg.subject[:50]}",
     )
     result.notes.append(inbox_note)
@@ -240,7 +264,9 @@ async def _process_one(
     ))
 
 
-def _render_inbox_note(msg: Message, verdict: dict, files: list[dict], now: datetime) -> str:
+def _render_inbox_note(
+    msg: Message, verdict: dict, files: list[dict], now: datetime, email_archive: dict | None = None
+) -> str:
     lines = [
         "---", "tipo: correo", f"remitente: {msg.sender}",
         f"categoria: {verdict['category']}", f"recibido: {now.isoformat(timespec='seconds')}",
@@ -249,6 +275,10 @@ def _render_inbox_note(msg: Message, verdict: dict, files: list[dict], now: date
         f"**Por qué importa:** {verdict['reason']}", "",
         "## Resumen", "", verdict["summary"] or "_(sin resumen)_",
     ]
+    if email_archive:
+        lines += ["", "## Correo original (intacto)", "",
+                  f"- 📧 [Descargar .eml]({email_archive['drive_link']})  ",
+                  f"- **SHA-256:** `{email_archive['sha256']}`"]
     if files:
         lines += ["", "## Archivos adjuntos", ""]
         for f in files:

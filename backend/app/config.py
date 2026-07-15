@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     max_uncompressed_mb: int = 200
     max_pdf_pages: int = 500
 
+    # --- Unstructured (lectura amplia de documentos vía API: pptx, docx, imágenes…) ---
+    unstructured_api_key: str = ""
+    unstructured_api_url: str = "https://api.unstructuredapp.io/general/v0/general"
+
     # --- Bóveda (repo privado de GitHub) ---
     vault_repo_owner: str = ""
     vault_repo_name: str = ""

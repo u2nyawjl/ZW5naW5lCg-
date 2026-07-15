@@ -85,4 +85,9 @@ jobs:
           # procesa el correo y escribe la bóveda pero NUNCA refleja nada al panel.
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
+
+          # Unstructured (opcional): lectura amplia de documentos. Si el secret no existe,
+          # la clave queda vacía y el pipeline usa solo los extractores locales.
+          UNSTRUCTURED_API_KEY: ${{ secrets.UNSTRUCTURED_API_KEY }}
+          UNSTRUCTURED_API_URL: ${{ secrets.UNSTRUCTURED_API_URL || 'https://api.unstructuredapp.io/general/v0/general' }}
         run: python -m app.agent.heartbeat
