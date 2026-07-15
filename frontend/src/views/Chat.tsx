@@ -1,26 +1,45 @@
 import { useEffect, useRef, useState } from "react";
-import { ChatMsg, chat, listModels } from "../lib/api";
+import { ChatMsg, chat, compileLatex, listModels } from "../lib/api";
+import { plantumlUrl } from "../lib/plantuml";
 
-// PlantUML se renderiza en cliente con el formato hex (~h): sin librería de deflate.
-function plantumlUrl(src: string): string {
-  const hex = Array.from(new TextEncoder().encode(src.trim()))
-    .map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `https://www.plantuml.com/plantuml/svg/~h${hex}`;
+function LatexBlock({ code }: { code: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "error">("idle");
+  async function open() {
+    setState("busy");
+    try {
+      const pdf = await compileLatex(code);
+      window.open(URL.createObjectURL(pdf), "_blank");
+      setState("idle");
+    } catch { setState("error"); }
+  }
+  return (
+    <div className="latex">
+      <div className="latex-head">
+        <span>📄 Reporte LaTeX</span>
+        <button onClick={open} disabled={state === "busy"}>
+          {state === "busy" ? "compilando…" : state === "error" ? "reintentar" : "ver PDF"}
+        </button>
+      </div>
+      <pre>{code.trim()}</pre>
+    </div>
+  );
 }
 
-// Divide el texto en fragmentos de texto y bloques ```plantuml, renderizando estos como imagen.
+// Trocea el mensaje en texto / diagramas PlantUML / bloques LaTeX.
 function MessageContent({ content }: { content: string }) {
-  const parts = content.split(/```(?:plantuml|puml)\s*([\s\S]*?)```/g);
-  return (
-    <>
-      {parts.map((p, i) =>
-        i % 2 === 1
-          ? <img key={i} className="uml" src={plantumlUrl(p)} alt="diagrama PlantUML"
-                 onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />
-          : (p ? <span key={i}>{p}</span> : null)
-      )}
-    </>
-  );
+  const re = /```(plantuml|puml|latex|tex)\s*([\s\S]*?)```/g;
+  const out: React.ReactNode[] = [];
+  let last = 0, m: RegExpExecArray | null, k = 0;
+  while ((m = re.exec(content)) !== null) {
+    if (m.index > last) out.push(<span key={k++}>{content.slice(last, m.index)}</span>);
+    const lang = m[1], code = m[2];
+    if (lang === "latex" || lang === "tex") out.push(<LatexBlock key={k++} code={code} />);
+    else out.push(<img key={k++} className="uml" src={plantumlUrl(code)} alt="diagrama PlantUML"
+                       onError={(e) => ((e.target as HTMLImageElement).style.display = "none")} />);
+    last = m.index + m[0].length;
+  }
+  if (last < content.length) out.push(<span key={k++}>{content.slice(last)}</span>);
+  return <>{out}</>;
 }
 
 export function Chat() {

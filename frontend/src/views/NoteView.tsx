@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, VaultEntry, LogEvent, ServiceRow } from "../lib/api";
 import { useCollection } from "../lib/useFirestore";
+import { withDiagrams } from "../lib/plantuml";
 
 const ICONS: Record<string, string> = {
   heartbeat: "🫀", "email.saved": "📨", "email.discarded": "🗑️",
@@ -17,7 +18,7 @@ const evIcon = (t: string) => ICONS[t] || ICONS[t.split(".")[0]] || ICONS.defaul
 function Paper({ content }: { content: string }) {
   return (
     <div className="markdown paper">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{withDiagrams(content)}</ReactMarkdown>
     </div>
   );
 }
@@ -26,7 +27,7 @@ function Paper({ content }: { content: string }) {
 function Matrix({ content }: { content: string }) {
   return (
     <div className="markdown matrix">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{withDiagrams(content)}</ReactMarkdown>
     </div>
   );
 }

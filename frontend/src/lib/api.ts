@@ -78,6 +78,16 @@ export async function listModels(): Promise<{ models: string[]; default: string 
   return req<{ models: string[]; default: string }>("/api/models");
 }
 
+export async function compileLatex(tex: string): Promise<Blob> {
+  const resp = await fetch(`${API_BASE}/api/latex`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ tex }),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.blob();
+}
+
 export async function writeVault(path: string, content: string): Promise<void> {
   const resp = await fetch(`${API_BASE}/api/vault/${path}`, {
     method: "PUT",
