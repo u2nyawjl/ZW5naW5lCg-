@@ -6,7 +6,8 @@ const ICONS: Record<string, string> = {
   heartbeat: "🫀", "email.saved": "📨", "email.discarded": "🗑️",
   "file.scanned": "🛡️", "file.blocked": "⛔", "reminder.sent": "⏰",
   "reminder.error": "⚠️", "honeypot": "🎯",
-  "calendar.created": "📅", "calendar.error": "⚠️", "people.added": "👥",
+  "calendar.created": "📅", "calendar.error": "⚠️", "calendar.duplicate": "📅",
+  "email.archived": "🗄️", "people.added": "👥",
   default: "▪",
 };
 

@@ -78,6 +78,29 @@ def _parse_dt(raw: str) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+async def _event_exists(google: GoogleClient, title: str, start: datetime, all_day: bool) -> bool:
+    """¿Ya hay un evento igual (mismo título y momento)? Evita duplicar al reprocesar o
+    cuando dos correos mencionan la misma reunión."""
+    try:
+        events = await google.upcoming_events(since=start - timedelta(days=1), limit=50)
+    except Exception:
+        return False
+    want = title.strip().lower()
+    for ev in events:
+        if ev.get("summary", "").strip().lower() != want:
+            continue
+        s = ev.get("start", {})
+        est = _parse_dt(s.get("dateTime") or s.get("date") or "")
+        if est is None:
+            continue
+        if all_day:
+            if est.date() == start.date():
+                return True
+        elif abs((est - start).total_seconds()) < 3600:  # dentro de 1 h
+            return True
+    return False
+
+
 async def process_inbox(
     settings,
     *,
@@ -112,7 +135,12 @@ async def process_inbox(
 async def _process_one(
     msg: Message, settings, brain, vault, google, vt_client, mission, result: IntakeResult
 ) -> None:
-    verdict = await brain.classify_email(msg.sender, msg.subject, msg.body, mission)
+    now = datetime.now(timezone.utc)
+    # Una sola llamada al LLM: clasifica Y detecta cita (menos cuota, un fallo menos).
+    verdict = await brain.analyze_email(
+        msg.sender, msg.subject, msg.body, mission,
+        now.isoformat(timespec="seconds"), settings.tz,
+    )
 
     if not verdict["relevant"]:
         log_event(
@@ -126,7 +154,6 @@ async def _process_one(
         return
 
     result.relevant += 1
-    now = datetime.now(timezone.utc)
     stored_files: list[dict] = []
 
     # Personas del correo (remitente, destinatarios, lista citada de un reenvío) →
@@ -145,34 +172,35 @@ async def _process_one(
         except Exception as exc:
             result.errors.append(f"personas: {type(exc).__name__}: {exc}")
 
-    # ¿Agenda una cita concreta? → evento en el Calendar del agente.
-    try:
-        ev = await brain.extract_event(
-            msg.sender, msg.subject, msg.body, now.isoformat(timespec="seconds"), settings.tz
-        )
-    except Exception:
-        ev = None
+    # ¿Agenda una cita concreta? (viene en el mismo análisis) → evento en el Calendar,
+    # sin duplicar si ya existe uno igual.
+    ev = verdict.get("event")
     if ev:
         start = _parse_dt(ev["start"])
         end = _parse_dt(ev["end"]) or (start + timedelta(hours=1) if start else None)
         if start and end:
-            desc = (ev["notes"] or verdict["summary"]).strip()
-            try:
-                await google.create_event(
-                    ev["title"], start, end,
-                    description=f"{desc}\n\n(Detectado en correo de {msg.sender})".strip(),
-                    location=ev["location"], all_day=ev["all_day"],
-                )
-                result.events_created.append(f"{ev['title']} · {start:%Y-%m-%d %H:%M}")
+            if await _event_exists(google, ev["title"], start, ev["all_day"]):
                 result.events.append(timeline.event(
-                    "calendar.created",
-                    f"Evento agendado: {ev['title']} ({start:%Y-%m-%d %H:%M})",
-                    when=start.isoformat(timespec="minutes"),
+                    "calendar.duplicate", f"Evento ya existía, no se duplica: {ev['title']}",
                 ))
-            except Exception as exc:
-                result.events.append(timeline.event(
-                    "calendar.error", f"No pude agendar «{ev['title']}»: {exc}", level="warn",
-                ))
+            else:
+                desc = (ev["notes"] or verdict["summary"]).strip()
+                try:
+                    await google.create_event(
+                        ev["title"], start, end,
+                        description=f"{desc}\n\n(Detectado en correo de {msg.sender})".strip(),
+                        location=ev["location"], all_day=ev["all_day"],
+                    )
+                    result.events_created.append(f"{ev['title']} · {start:%Y-%m-%d %H:%M}")
+                    result.events.append(timeline.event(
+                        "calendar.created",
+                        f"Evento agendado: {ev['title']} ({start:%Y-%m-%d %H:%M})",
+                        when=start.isoformat(timespec="minutes"),
+                    ))
+                except Exception as exc:
+                    result.events.append(timeline.event(
+                        "calendar.error", f"No pude agendar «{ev['title']}»: {exc}", level="warn",
+                    ))
 
     docs_folder = await google.ensure_folder("documentos")
 

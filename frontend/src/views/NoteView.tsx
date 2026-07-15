@@ -8,6 +8,7 @@ const ICONS: Record<string, string> = {
   heartbeat: "🫀", "email.saved": "📨", "email.discarded": "🗑️",
   "file.scanned": "🛡️", "file.blocked": "⛔", "reminder.sent": "⏰",
   "reminder.error": "⚠️", "calendar.created": "📅", "calendar.error": "⚠️",
+  "calendar.duplicate": "📅", "email.archived": "🗄️",
   "people.added": "👥", "honeypot": "🎯", default: "▪",
 };
 const evIcon = (t: string) => ICONS[t] || ICONS[t.split(".")[0]] || ICONS.default;
