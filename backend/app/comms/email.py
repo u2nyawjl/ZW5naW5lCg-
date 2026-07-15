@@ -126,6 +126,55 @@ class EmailClient:
     async def fetch(self, label: str = "", unread_only: bool = True) -> list[Message]:
         return await asyncio.to_thread(self._fetch_sync, label, unread_only)
 
+    # ── Escuchar por cursor de UID (no depende de leído/no leído) ─────────
+
+    def _fetch_new_sync(
+        self, last_uid: int | None, uidvalidity: int | None
+    ) -> tuple[list[Message], int, int]:
+        """Trae los correos con UID > last_uid, sin importar si están leídos.
+
+        Abre el buzón en modo EXAMINE (solo lectura): el agente NUNCA altera el estado
+        leído/no-leído del correo de Nico. Devuelve (mensajes, uidvalidity, max_uid).
+        Si el buzón se recreó (uidvalidity cambió) o es la primera vez, cae a los no leídos
+        para no reprocesar todo el histórico.
+        """
+        conn = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+        try:
+            conn.login(self.address, self._password)
+            conn.select("INBOX", readonly=True)  # EXAMINE: no toca flags
+            uv_list = conn.untagged_responses.get("UIDVALIDITY")
+            cur_uv = int(uv_list[0]) if uv_list else 0
+
+            status, alld = conn.uid("search", None, "ALL")
+            all_uids = [int(x) for x in alld[0].split()] if status == "OK" and alld[0] else []
+            max_uid = max(all_uids) if all_uids else (last_uid or 0)
+
+            if last_uid is not None and cur_uv == uidvalidity:
+                status, data = conn.uid("search", None, f"UID {last_uid + 1}:*")
+                # El rango n:* siempre incluye el UID más alto aunque n lo supere: se filtra.
+                cand = [u for u in ([int(x) for x in data[0].split()]
+                                    if status == "OK" and data[0] else []) if u > last_uid]
+            else:
+                status, data = conn.uid("search", None, "UNSEEN")
+                cand = [int(x) for x in data[0].split()] if status == "OK" and data[0] else []
+
+            messages: list[Message] = []
+            for u in sorted(cand):
+                status, raw = conn.uid("fetch", str(u), "(RFC822)")
+                if status == "OK" and raw and raw[0]:
+                    messages.append(self._parse(str(u), raw[0][1]))
+            return messages, cur_uv, max_uid
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
+    async def fetch_new(
+        self, last_uid: int | None, uidvalidity: int | None
+    ) -> tuple[list[Message], int, int]:
+        return await asyncio.to_thread(self._fetch_new_sync, last_uid, uidvalidity)
+
     def _mark_seen_sync(self, uid: str) -> None:
         conn = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
         try:

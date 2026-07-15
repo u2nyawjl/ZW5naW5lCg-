@@ -1,6 +1,10 @@
 """Ingesta de correo: el núcleo de entrada del agente.
 
-Por cada correo sin leer:
+Los correos se toman por un CURSOR de UID guardado en la bóveda (`mail/cursor.json`), no por
+el flag "no leído": así un mensaje que Nico ya abrió en Gmail no se salta nunca. El buzón se
+lee en modo EXAMINE (solo lectura); el agente jamás altera el estado leído/no-leído.
+
+Por cada correo nuevo:
   1. El LLM decide si es relevante para la misión (mission.md).
   2. Si es ruido: se registra y se descarta.
   3. Si es relevante:
@@ -14,6 +18,7 @@ obedecer instrucciones que vengan dentro de un mensaje.
 """
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -105,6 +110,27 @@ async def _event_exists(google: GoogleClient, title: str, start: datetime, all_d
     return False
 
 
+MAIL_CURSOR = "mail/cursor.json"
+
+
+async def _load_cursor(vault: GitHubClient) -> dict | None:
+    note = await vault.read_note(MAIL_CURSOR)
+    if not note:
+        return None
+    try:
+        return json.loads(note.content)
+    except json.JSONDecodeError:
+        return None
+
+
+async def _save_cursor(vault: GitHubClient, uidvalidity: int, last_uid: int) -> None:
+    await vault.write_note(
+        MAIL_CURSOR,
+        json.dumps({"uidvalidity": uidvalidity, "last_uid": last_uid}, indent=2),
+        f"mail: cursor uid={last_uid}",
+    )
+
+
 async def process_inbox(
     settings,
     *,
@@ -116,22 +142,33 @@ async def process_inbox(
     mission: str,
 ) -> IntakeResult:
     result = IntakeResult()
-    messages = await mail.fetch(label="", unread_only=True)
+
+    # Cursor de UID en la bóveda: procesamos lo que EL AGENTE aún no ha visto, no lo que
+    # el humano no ha leído. Así un correo que Nico ya abrió no se salta jamás.
+    cursor = await _load_cursor(vault)
+    last_uid = cursor.get("last_uid") if cursor else None
+    prev_uv = cursor.get("uidvalidity") if cursor else None
+    messages, uidvalidity, max_uid = await mail.fetch_new(last_uid, prev_uv)
 
     for msg in messages:
         result.processed += 1
         try:
             await _process_one(msg, settings, brain, vault, google, vt_client, mission, result)
         except Exception as exc:
+            # Un correo que rompe el pipeline no se reintenta en bucle: el cursor avanza
+            # igual (queda registrado el fallo) y el latido sigue con los demás.
             result.errors.append(f"{msg.subject[:40]}: {type(exc).__name__}: {exc}")
             log_event(
                 "intake.error", f"Fallo procesando '{msg.subject[:60]}': {exc}",
                 level=Level.WARN, logs_dir=settings.logs_dir,
             )
-        finally:
-            # Marcar leído aunque falle: un correo que rompe el pipeline no debe
-            # reprocesarse en bucle en cada latido. El fallo queda en el log.
-            await mail.mark_seen(msg.uid)
+
+    # Avanza el cursor al UID más alto del buzón: todo lo anterior ya se consideró.
+    new_last = max(max_uid, last_uid or 0)
+    try:
+        await _save_cursor(vault, uidvalidity, new_last)
+    except Exception as exc:
+        result.errors.append(f"cursor: {type(exc).__name__}: {exc}")
 
     return result
 
