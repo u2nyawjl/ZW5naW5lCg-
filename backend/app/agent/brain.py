@@ -11,6 +11,9 @@ import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 
+EMBED_MODEL = "openai/text-embedding-3-small"
+
+
 class BrainError(RuntimeError):
     pass
 
@@ -66,6 +69,36 @@ class Brain:
         self.usage["total_tokens"] += int(u.get("total_tokens", 0) or 0)
         self.usage["calls"] += 1
         return data["choices"][0]["message"]["content"]
+
+    @retry(
+        retry=retry_if_exception_type(httpx.HTTPStatusError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=20),
+        reraise=True,
+    )
+    async def embed(self, texts: list[str], dimensions: int = 256) -> list[list[float]]:
+        """Vectoriza textos para la búsqueda semántica de la bóveda.
+
+        `dimensions` recorta el vector (Matryoshka): 256 en vez de 1536 baja el
+        índice a ~1 KB por nota perdiendo muy poca precisión, y el coseno en el
+        gateway sale 6× más barato.
+        """
+        if not texts:
+            return []
+        client = await self._http()
+        resp = await client.post(
+            f"{self.base_url}/embeddings",
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            json={"model": EMBED_MODEL, "input": texts, "dimensions": dimensions},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        u = data.get("usage") or {}
+        self.usage["prompt_tokens"] += int(u.get("prompt_tokens", 0) or 0)
+        self.usage["total_tokens"] += int(u.get("total_tokens", 0) or 0)
+        self.usage["calls"] += 1
+        # La API permite devolver los vectores desordenados; el índice es la garantía.
+        return [d["embedding"] for d in sorted(data["data"], key=lambda d: d["index"])]
 
     async def classify_email(
         self, sender: str, subject: str, body: str, mission: str

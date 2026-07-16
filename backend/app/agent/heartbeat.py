@@ -29,7 +29,7 @@ from app.integrations.firestore import FirestoreClient
 from app.integrations.github import GitHubClient
 from app.integrations.google import GoogleClient
 from app.security.virustotal import VirusTotalClient
-from app.vault import manifest, people, timeline
+from app.vault import embed, manifest, people, timeline
 
 
 @dataclass
@@ -111,6 +111,24 @@ async def beat() -> int:
             print(f"✅ Avisos   · {len(pulse.reminders_sent)} recordatorio(s)")
     except Exception as exc:
         pulse.errors.append(f"recordatorios: {type(exc).__name__}: {exc}")
+
+    # 3b. Índice semántico. Va después de la ingesta porque indexa las notas que ésta
+    # acaba de escribir, y antes del timeline para que su evento quede en la bitácora.
+    # Solo re-embebe lo que cambió: un latido sin correo nuevo no gasta una llamada.
+    try:
+        idx = await embed.build_index(vault, brain)
+        if idx["indexed"]:
+            pulse.events.append(timeline.event(
+                "index",
+                f"Índice semántico: {idx['indexed']} nota(s) re-embebida(s), "
+                f"{idx['total']} indexadas en total",
+            ))
+            print(f"✅ Índice   · {idx['indexed']} re-embebidas, {idx['total']} totales")
+        else:
+            print(f"· Índice   · sin cambios ({idx['total']} notas)")
+    except Exception as exc:
+        pulse.errors.append(f"índice: {type(exc).__name__}: {exc}")
+        print(f"❌ Índice   · {exc}")
 
     # 4. Timeline durable + resumen del latido
     pulse.events.append(timeline.event(

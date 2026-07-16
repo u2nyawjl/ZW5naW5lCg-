@@ -122,6 +122,27 @@ class GitHubClient:
         resp.raise_for_status()
         return [f["path"] for f in resp.json() if f["type"] == "file"]
 
+    async def tree(self) -> list[dict]:
+        """La bóveda entera —rutas, tipo y sha— en UNA petición.
+
+        La Contents API obliga a una petición por carpeta; esta devuelve el repo
+        completo. Importa por dos motivos: el indexador necesita el sha del blob
+        para saber qué cambió (cambia si y solo si cambia el contenido), y el
+        shell necesita el árbol para que `ls`/`find`/`tree` no cuesten N llamadas.
+        """
+        resp = await self._request(
+            "GET", f"/repos/{self.owner}/{self.repo}/git/trees/{self.branch}",
+            params={"recursive": "1"},
+        )
+        if resp.status_code == 404:
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+        return [
+            {"path": e["path"], "type": e["type"], "sha": e["sha"], "size": e.get("size", 0)}
+            for e in data.get("tree", [])
+        ]
+
     # ── Tareas (Issues) ──────────────────────────────────────────────────
 
     async def create_task(self, title: str, body: str, labels: list[str] | None = None) -> dict:
