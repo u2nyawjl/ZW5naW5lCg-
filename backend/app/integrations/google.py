@@ -1,8 +1,12 @@
-"""Drive y Calendar del agente.
+"""Drive, Calendar y el timbre de Gmail.
 
 Drive es su almacén de archivos; Calendar, su registro de reuniones y eventos.
 El scope es `drive.file`: el agente solo ve lo que él mismo crea. No puede leer
 archivos que subas tú a mano — los documentos entran por correo, no por Drive.
+
+De Gmail solo se usa `watch` con el scope `gmail.metadata`, el más estrecho que
+lo permite: sirve para que Google avise «tu buzón cambió» y nada más. Este canal
+NO puede leer tu correo. Leerlo sigue siendo cosa de IMAP (ver comms/email.py).
 """
 
 import json
@@ -16,6 +20,7 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
@@ -188,6 +193,32 @@ class GoogleClient:
         await self._request(
             "DELETE", f"{CALENDAR_API}/calendars/{self.calendar_id}/events/{event_id}"
         )
+
+    # ── El timbre de Gmail ───────────────────────────────────────────────
+
+    async def watch_gmail(self, topic: str) -> dict:
+        """Pide a Gmail que publique en `topic` cuando cambie el buzón.
+
+        Filtrado a INBOX a propósito: sin el filtro, Gmail notifica CUALQUIER
+        cambio del buzón —marcar leído, etiquetar, enviar— y cada uno despertaría
+        al agente para no encontrar nada nuevo.
+
+        Devuelve {'historyId', 'expiration'}; `expiration` son milisegundos epoch
+        y nunca pasa de 7 días. Volver a llamar no duplica nada: extiende el que
+        haya. Si falla, propaga: sin watch no hay timbre y hay que enterarse.
+        """
+        resp = await self._request(
+            "POST", f"{GMAIL_API}/users/me/watch",
+            json={
+                "topicName": topic,
+                "labelIds": ["INBOX"],
+                "labelFilterBehavior": "INCLUDE",
+            },
+        )
+        return resp.json()
+
+    async def stop_gmail_watch(self) -> None:
+        await self._request("POST", f"{GMAIL_API}/users/me/stop")
 
     async def aclose(self) -> None:
         if self._client is not None:

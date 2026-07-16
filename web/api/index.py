@@ -51,6 +51,7 @@ IDENTITY_AUD = ("https://identitytoolkit.googleapis.com/"
                 "google.identity.identitytoolkit.v1.IdentityToolkit")
 
 AGENT_WAKE_SECRET = os.environ.get("AGENT_WAKE_SECRET", "")
+GMAIL_PUSH_TOKEN = os.environ.get("GMAIL_PUSH_TOKEN", "")
 DASHBOARD_API_TOKEN = os.environ.get("DASHBOARD_API_TOKEN", "")
 GITHUB_DISPATCH_TOKEN = os.environ.get("GITHUB_DISPATCH_TOKEN", "")
 VAULT_GITHUB_TOKEN = os.environ.get("VAULT_GITHUB_TOKEN", "")
@@ -178,6 +179,51 @@ async def wake(request: Request, x_agent_secret: str = Header(default="")):
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     })
     if not ok:
+        raise HTTPException(status_code=502, detail="No se pudo despertar al agente")
+    return {"status": "despertado"}
+
+
+# Gmail notifica CUALQUIER cambio del buzón; una ráfaga (un correo que llega, se
+# marca leído y se etiqueta) dispararía tres latidos para el mismo trabajo. Como
+# los lambdas no comparten memoria esto no es un candado, solo recorta lo obvio:
+# la deduplicación de verdad la hace el cursor de UID, que no reprocesa nada.
+_last_gmail_wake = 0.0
+GMAIL_DEBOUNCE = 60.0
+
+
+@app.post("/gmail")
+async def gmail_push(request: Request, token: str = ""):
+    """Pub/Sub avisa de que el buzón cambió.
+
+    Es solo un timbre: la notificación no trae el correo y no hace falta que lo
+    traiga —el latido ya sabe leer por IMAP desde su cursor de UID—. Por eso esto
+    valida y dispara, nada más: Pub/Sub reintenta si no recibe un 2xx rápido, y
+    el trabajo pesado vive en Actions, que no tiene timeout.
+    """
+    global _last_gmail_wake
+    if not GMAIL_PUSH_TOKEN or not hmac.compare_digest(token, GMAIL_PUSH_TOKEN):
+        raise HTTPException(status_code=403, detail="Secreto inválido")
+
+    # El correo al que apunta el aviso, solo para la bitácora. Nunca es una orden.
+    who = ""
+    try:
+        body = await request.json()
+        raw = (body.get("message") or {}).get("data") or ""
+        who = json.loads(base64.b64decode(raw)).get("emailAddress", "")
+    except Exception:
+        pass
+
+    now = time.time()
+    if now - _last_gmail_wake < GMAIL_DEBOUNCE:
+        return {"status": "ignorado", "detail": "antirrebote"}
+    _last_gmail_wake = now
+
+    if not await dispatch("wake", {
+        "source": "gmail-push",
+        "reason": f"Pub/Sub: cambió el buzón {who}".strip(),
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }):
+        # 5xx a propósito: que Pub/Sub reintente en vez de perder el aviso.
         raise HTTPException(status_code=502, detail="No se pudo despertar al agente")
     return {"status": "despertado"}
 
@@ -989,14 +1035,17 @@ async def latex(request: Request, authorization: str | None = Header(default=Non
 # reales y CUALQUIER otra cosa se trata como sondeo. No hay nada que filtrar, y
 # además cubre las rutas que no se me ocurrieron.
 
-REAL_ROUTES = {"/", "/auth", "/wake", "/health", "/api/status", "/api/logs",
+REAL_ROUTES = {"/", "/auth", "/wake", "/gmail", "/health", "/api/status", "/api/logs",
                "/api/tasks", "/api/calendar", "/api/file", "/api/services", "/api/chat",
                "/api/models", "/api/latex", "/api/conv"}
 REAL_PREFIXES = ("/api/vault/",)
 
-# Ruido de fondo de cualquier navegador o crawler: no merece una alerta.
-IGNORED = {"/favicon.ico", "/robots.txt", "/apple-touch-icon.png",
-           "/apple-touch-icon-precomposed.png", "/sitemap.xml"}
+# Ruido de fondo de cualquier navegador o crawler: no merece una alerta. Ojo con
+# esta lista: el propio Vercel pide /favicon.png al terminar un deploy, y una alerta
+# por eso entrena a ignorar el honeypot — que es lo contrario de para lo que está.
+IGNORED = {"/favicon.ico", "/favicon.png", "/favicon.svg", "/robots.txt",
+           "/apple-touch-icon.png", "/apple-touch-icon-precomposed.png",
+           "/sitemap.xml", "/.well-known/security.txt"}
 
 # Best-effort: cada instancia caliente recuerda lo que ya reportó, para que un escaneo
 # automatizado no dispare mil workflows. Las funciones serverless no comparten memoria,

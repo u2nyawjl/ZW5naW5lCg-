@@ -14,10 +14,11 @@ Cada fase falla por su cuenta: que Calendar esté caído no debe dejar sin inges
 """
 
 import asyncio
+import json
 import os
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.agent import reminders
 from app.agent.brain import Brain
@@ -43,12 +44,56 @@ class Pulse:
     events: list[dict] = field(default_factory=list)
 
 
+WATCH_STATE = "mail/watch.json"
+RENEW_BEFORE = timedelta(hours=48)
+
+
 async def _read_vault_text(vault: GitHubClient, path: str, fallback: str) -> str:
     try:
         note = await vault.read_note(path)
         return note.content if note else fallback
     except Exception:
         return fallback
+
+
+async def _renew_gmail_watch(settings, google: GoogleClient, vault: GitHubClient) -> str:
+    """Mantiene vivo el timbre de Gmail. Devuelve un resumen, o '' si no tocaba.
+
+    watch() caduca a los 7 días. Renovarlo en cada latido serían 24 llamadas
+    diarias para nada, así que se guarda la caducidad y solo se renueva cuando
+    quedan menos de 48 h: margen de sobra aunque el agente pase un día caído.
+    """
+    now = datetime.now(timezone.utc)
+    state: dict = {}
+    note = await vault.read_note(WATCH_STATE)
+    if note:
+        try:
+            state = json.loads(note.content)
+        except json.JSONDecodeError:
+            state = {}
+
+    # Si cambia el topic, el watch viejo apunta a otro sitio: hay que rehacerlo.
+    same_topic = state.get("topic") == settings.gmail_pubsub_topic
+    expires_ms = int(state.get("expiration") or 0)
+    if same_topic and expires_ms:
+        expires = datetime.fromtimestamp(expires_ms / 1000, timezone.utc)
+        if expires - now > RENEW_BEFORE:
+            return ""
+
+    data = await google.watch_gmail(settings.gmail_pubsub_topic)
+    new_ms = int(data.get("expiration") or 0)
+    await vault.write_note(
+        WATCH_STATE,
+        json.dumps({
+            "topic": settings.gmail_pubsub_topic,
+            "expiration": new_ms,
+            "history_id": data.get("historyId"),
+            "renewed_at": now.isoformat(timespec="seconds"),
+        }, ensure_ascii=False, indent=2),
+        "gmail: renueva el watch",
+    )
+    until = datetime.fromtimestamp(new_ms / 1000, timezone.utc) if new_ms else now
+    return f"timbre renovado hasta {until:%Y-%m-%d %H:%M} UTC"
 
 
 async def beat() -> int:
@@ -102,6 +147,18 @@ async def beat() -> int:
     except Exception as exc:
         pulse.errors.append(f"ingesta: {type(exc).__name__}: {exc}")
         print(f"❌ Ingesta  · {exc}")
+
+    # 2b. El timbre de Gmail. Es lo que hace que el correo entre en segundos en vez
+    # de esperar al cron; el cron queda solo de despertador de los recordatorios.
+    if settings.gmail_pubsub_topic:
+        try:
+            renewed = await _renew_gmail_watch(settings, google, vault)
+            if renewed:
+                pulse.events.append(timeline.event("gmail.watch", f"Gmail: {renewed}"))
+                print(f"✅ Gmail    · {renewed}")
+        except Exception as exc:
+            pulse.errors.append(f"gmail watch: {type(exc).__name__}: {exc}")
+            print(f"❌ Gmail    · {exc}")
 
     # 3. Recordatorios
     try:

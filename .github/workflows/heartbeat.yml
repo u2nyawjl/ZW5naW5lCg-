@@ -2,12 +2,20 @@ name: heartbeat
 
 on:
   schedule:
-    # Cada 30 min. SIEMPRE UTC. Es el "despertador" de los recordatorios: revisa
-    # la agenda y avisa día antes / inminente. GitHub puede retrasar el cron bajo
-    # carga; la lógica usa umbrales (≤24h, ≤2h), no instantes, así que lo tolera.
-    - cron: "*/30 * * * *"
+    # Cada hora. SIEMPRE UTC. Ya NO es el poller del correo —de eso se encarga el
+    # timbre de Gmail (Pub/Sub → Vercel → repository_dispatch)—, sino:
+    #   1. el despertador de los recordatorios: revisa la agenda y avisa día antes
+    #      / inminente. La lógica usa umbrales (≤24h, ≤2h), no instantes.
+    #   2. la renovación del watch de Gmail, que caduca a los 7 días.
+    #   3. la red de seguridad: si Pub/Sub pierde un aviso, el correo entra igual.
+    #
+    # Por qué una hora y no más: la ventana de "inminente" son 2 h, así que con un
+    # hueco de 1 h siempre cae un latido dentro y sobra margen para los retrasos
+    # del cron de GitHub. Cada 2 h un evento a exactamente 2 h vista podría tener
+    # su siguiente latido justo a la hora de inicio y quedarse sin aviso.
+    - cron: "0 * * * *"
 
-  # El despertar instantáneo por correo urgente (Vercel → aquí).
+  # El despertar instantáneo: Gmail avisa → Vercel → aquí. Segundos, no una hora.
   repository_dispatch:
     types: [wake]
 
@@ -77,6 +85,9 @@ jobs:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          # Sin esta línea el latido no renueva el watch, el timbre caduca a los
+          # 7 días y el correo vuelve a entrar solo por cron, en silencio.
+          GMAIL_PUBSUB_TOPIC: ${{ secrets.GMAIL_PUBSUB_TOPIC }}
 
           # Seguridad de archivos
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}

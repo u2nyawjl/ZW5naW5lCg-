@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_password: str = ""
     gmail_wake_label: str = "agent-wake"
+    # projects/<proyecto>/topics/<topic>. Vacío = sin timbre: el correo entra
+    # cuando pase el cron, no al llegar.
+    gmail_pubsub_topic: str = ""
 
     # --- Honeypot ---
     honeypot_enabled: bool = True
