@@ -4,6 +4,17 @@ import remarkGfm from "remark-gfm";
 import { api, VaultEntry, LogEvent, ServiceRow } from "../lib/api";
 import { useCollection } from "../lib/useFirestore";
 import { withDiagrams } from "../lib/plantuml";
+import { Mermaid } from "../components/Mermaid";
+
+// PlantUML se resuelve antes de renderizar (acaba siendo un <img> a un servidor).
+// Mermaid no puede: se dibuja contra el DOM, así que se intercepta el bloque aquí.
+const MD_COMPONENTS = {
+  code({ className, children, ...props }: any) {
+    const lang = /language-(\w+)/.exec(className || "")?.[1];
+    if (lang === "mermaid") return <Mermaid code={String(children)} />;
+    return <code className={className} {...props}>{children}</code>;
+  },
+};
 
 const ICONS: Record<string, string> = {
   heartbeat: "🫀", "email.saved": "📨", "email.discarded": "🗑️",
@@ -18,7 +29,7 @@ const evIcon = (t: string) => ICONS[t] || ICONS[t.split(".")[0]] || ICONS.defaul
 function Paper({ content }: { content: string }) {
   return (
     <div className="markdown paper">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{withDiagrams(content)}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{withDiagrams(content)}</ReactMarkdown>
     </div>
   );
 }
@@ -27,7 +38,7 @@ function Paper({ content }: { content: string }) {
 function Matrix({ content }: { content: string }) {
   return (
     <div className="markdown matrix">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{withDiagrams(content)}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{withDiagrams(content)}</ReactMarkdown>
     </div>
   );
 }

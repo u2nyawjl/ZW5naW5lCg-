@@ -218,6 +218,20 @@ a:hover { color: #9df0ff; }
 .markdown hr { border: none; margin: 16px 0; }
 .markdown ul, .markdown ol { padding-left: 22px; }
 
+/* Diagramas dentro de una nota: ```mermaid se dibuja aquí, ```plantuml llega como <img>.
+   Ambos se centran y no desbordan el panel; si son anchos, hacen scroll ellos, no la página. */
+.mermaid-out, .markdown img[alt="diagrama"] {
+  display: block; margin: 18px auto; max-width: 100%; overflow-x: auto;
+}
+.mermaid-out svg { max-width: 100%; height: auto; }
+.diagram-loading { margin: 18px 0; opacity: 0.55; font-family: var(--mono); font-size: 12px; }
+.diagram-error {
+  margin: 18px 0; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid rgba(240, 120, 120, 0.45); background: rgba(120, 30, 30, 0.14);
+}
+.diagram-error strong { display: block; margin-bottom: 6px; font-size: 12.5px; }
+.diagram-error pre { margin: 6px 0 0; font-size: 11.5px; white-space: pre-wrap; }
+
 /* La nota (o su editor) llena el alto disponible del panel. */
 .note-wrap { display: flex; flex-direction: column; min-height: 100%; }
 .note-wrap > .markdown { flex: 1; }
