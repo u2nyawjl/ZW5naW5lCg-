@@ -21,13 +21,22 @@ function ext(name: string): string {
 
 /** Trocea la nota de la bóveda en sus secciones para no re-descargar nada.
  *
- *  `hastaElFinal` no es un capricho: el texto extraído de un pptx trae sus
- *  propias cabeceras («## Diapositiva 3»), así que cortar en el siguiente `##`
- *  mostraría solo la primera diapositiva. El contenido siempre va al final. */
+ *  Sin regex a propósito. Aquí ya se cayeron dos veces: el texto extraído de un
+ *  pptx trae sus PROPIAS cabeceras («## Diapositiva 3»), y además en JavaScript
+ *  `$` con la bandera `m` significa fin de LÍNEA, no fin de texto — así que
+ *  «hasta el final» devolvía cadena vacía. Buscar índices no tiene ese doble filo.
+ */
 function seccion(nota: string, titulo: string, hastaElFinal = false): string {
-  const fin = hastaElFinal ? "$" : "(?=^## |$(?![\\s\\S]))";
-  const re = new RegExp(`^## ${titulo}\\s*$([\\s\\S]*?)${fin}`, "m");
-  return (re.exec(nota)?.[1] || "").trim();
+  const cabecera = `## ${titulo}`;
+  const i = nota.indexOf(cabecera);
+  if (i < 0) return "";
+  const desde = i + cabecera.length;
+  if (hastaElFinal) return nota.slice(desde).trim();
+
+  // Hasta la siguiente cabecera de nivel 2, mirando línea a línea.
+  const resto = nota.slice(desde).split("\n");
+  const corte = resto.findIndex((l, n) => n > 0 && l.startsWith("## "));
+  return (corte < 0 ? resto : resto.slice(0, corte)).join("\n").trim();
 }
 
 export function FileViewer({ file, onClose }: { file: FileRow; onClose: () => void }) {
@@ -101,7 +110,45 @@ export function FileViewer({ file, onClose }: { file: FileRow; onClose: () => vo
 
 // ── pestaña «Documento»: el archivo de verdad ─────────────────────────────
 
+// Google sabe dibujar pdf, docx, xlsx y pptx mejor que cualquier cosa que se
+// pueda meter en el bundle. La pega: el iframe va con la cuenta con la que Nico
+// tenga la sesión, y los archivos son del agente — por eso el latido se los
+// comparte. Si aun así falla (sesión con otra cuenta), queda el visor local.
 function Documento({ file, extraido }: { file: FileRow; extraido: string }) {
+  const [modo, setModo] = useState<"google" | "local">("google");
+  const driveId = file.drive_id || driveIdFromLink(file.drive_link);
+
+  if (modo === "google" && driveId) {
+    return (
+      <>
+        <div className="viewer-switch">
+          <span className="on">Visor de Google</span>
+          <span onClick={() => setModo("local")}>usar el visor local</span>
+        </div>
+        <iframe title={file.filename} className="viewer-frame"
+                src={`https://drive.google.com/file/d/${driveId}/preview`}
+                allow="autoplay" />
+        <div className="viewer-nota">
+          Si sale «no tienes acceso», es que el navegador está con otra cuenta de
+          Google: cambia de cuenta o usa el visor local.
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      {driveId && (
+        <div className="viewer-switch">
+          <span onClick={() => setModo("google")}>visor de Google</span>
+          <span className="on">Visor local</span>
+        </div>
+      )}
+      <Local file={file} extraido={extraido} />
+    </>
+  );
+}
+
+function Local({ file, extraido }: { file: FileRow; extraido: string }) {
   const [estado, setEstado] = useState<"cargando" | "listo" | "error">("cargando");
   const [blobUrl, setBlobUrl] = useState("");
   const [texto, setTexto] = useState("");

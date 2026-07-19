@@ -170,13 +170,16 @@ async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: St
             waiting += 1
             continue
 
-        drive_link, drive_id = "", ""
+        drive_link, drive_id, compartido = "", "", False
         if report.decision is Decision.ALLOW and report.text is not None:
             if docs_folder is None:
                 docs_folder = await google.ensure_folder("documentos")
             uploaded = await google.upload(
                 item["filename"], content, mime=report.mime, folder_id=docs_folder)
             drive_link, drive_id = uploaded.link, uploaded.id
+            # Compartirlo con Nico es lo que permite que el visor de Drive
+            # funcione incrustado en el dashboard, con SU cuenta.
+            compartido = await google.share(drive_id, settings.owner_email)
             events.append(timeline.event(
                 "file.scanned", f"Subida procesada: {item['filename']}",
                 vt=str(report.virustotal.status), sha256=report.sha256[:12]))
@@ -208,6 +211,7 @@ async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: St
             "collection": folder,
             "summary": resumen,
             "size_bytes": report.size_bytes,
+            "shared": compartido,
         })
         await storage.delete(blob)
         done += 1

@@ -227,6 +227,15 @@ async def beat() -> int:
         pulse.errors.append(f"resúmenes: {type(exc).__name__}: {exc}")
 
     try:
+        compartidos, errs = await maintenance.backfill_sharing(
+            vault, google, settings.owner_email)
+        pulse.errors.extend(errs)
+        if compartidos:
+            print(f"✅ Drive    · {compartidos} archivo(s) compartido(s) con el dueño")
+    except Exception as exc:
+        pulse.errors.append(f"compartir: {type(exc).__name__}: {exc}")
+
+    try:
         hubo = bool(pulse.intake.relevant or pulse.intake.files_stored or pulse.reminders_sent)
         acciones, errs, evs = await maintenance.run(
             vault, brain, google, hubo_novedades=hubo, eventos_recientes=pulse.events)

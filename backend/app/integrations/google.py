@@ -108,6 +108,27 @@ class GoogleClient:
         data = resp.json()
         return DriveFile(id=data["id"], name=data["name"], link=data.get("webViewLink", ""))
 
+    async def share(self, file_id: str, email: str) -> bool:
+        """Da acceso de lectura a Nico sobre un archivo que subió el agente.
+
+        Los archivos los crea la cuenta del agente, no la suya. Sin esto, la
+        previsualización de Drive incrustada en el dashboard da un 404 —el
+        navegador de Nico está firmado con SU cuenta— y además los archivos no
+        aparecen en su Drive. Con `drive.file` se pueden compartir los propios.
+
+        Sin notificación por correo: son decenas de archivos y no es una noticia.
+        """
+        if not file_id or not email:
+            return False
+        resp = await self._request(
+            "POST", f"{DRIVE_API}/files/{file_id}/permissions",
+            params={"sendNotificationEmail": "false"},
+            json={"role": "reader", "type": "user", "emailAddress": email},
+        )
+        if resp.status_code >= 300:
+            return False
+        return True
+
     async def ensure_folder(self, name: str, parent_id: str = "") -> str:
         parent = parent_id or self.root_folder_id
         query = f"name='{name}' and mimeType='{FOLDER_MIME}' and '{parent}' in parents and trashed=false"

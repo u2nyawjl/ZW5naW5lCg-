@@ -704,3 +704,9 @@ table.grid tr:hover td { background: rgba(157, 139, 255, 0.05); }
 .fm-menu-i { padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .fm-menu-i:hover { background: rgba(255, 255, 255, 0.05); }
 .fm-menu-i.on { color: var(--cyan); }
+
+/* Conmutador entre el visor de Google y el local. */
+.viewer-switch { display: flex; gap: 14px; margin-bottom: 12px; font-size: 11px; }
+.viewer-switch span { color: var(--muted); cursor: pointer; }
+.viewer-switch span:hover { color: var(--cyan); }
+.viewer-switch span.on { color: var(--text); cursor: default; font-weight: 600; }

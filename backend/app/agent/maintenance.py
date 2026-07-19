@@ -119,6 +119,34 @@ async def backfill_summaries(vault: GitHubClient, brain, limite: int = 3) -> tup
     return hechos, errores
 
 
+async def backfill_sharing(vault: GitHubClient, google, owner_email: str) -> tuple[int, list[str]]:
+    """Comparte con Nico los archivos que aún no lo están.
+
+    Es lo que hace que la previsualización de Drive funcione incrustada en el
+    dashboard: el navegador de Nico va con SU cuenta, y los archivos son del
+    agente. Sin compartir, el iframe da 404 y parece que el visor está roto.
+    """
+    if not owner_email:
+        return 0, []
+    entradas = await manifest.load(vault)
+    errores: list[str] = []
+    hechos = 0
+
+    for fila in entradas:
+        if fila.get("shared") or not fila.get("drive_id"):
+            continue
+        try:
+            if await google.share(fila["drive_id"], owner_email):
+                fila["shared"] = True
+                hechos += 1
+        except Exception as exc:
+            errores.append(f"compartir {fila.get('filename')}: {exc}")
+
+    if hechos:
+        await manifest.save(vault, entradas, f"files: comparte {hechos} archivo(s) con el dueño")
+    return hechos, errores
+
+
 # ── 2. Pasada de mantenimiento (decide la IA) ─────────────────────────────
 
 async def _debe_correr(vault: GitHubClient, hubo_novedades: bool) -> bool:
