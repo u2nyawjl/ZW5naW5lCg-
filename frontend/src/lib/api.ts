@@ -1,7 +1,14 @@
 // Cliente de la API del gateway (Vercel). El token del dashboard NO se compila en el
 // bundle: lo escribe el usuario en el login y vive en localStorage.
 
-const API_BASE = "https://u2scribe-gateway.vercel.app";
+export const API_BASE = "https://u2scribe-gateway.vercel.app";
+
+// Modo degradado: el gateway acepta el token pero Firebase no está disponible.
+// La bóveda, los archivos y el chat vienen de GitHub y siguen funcionando; solo
+// se pierden las vistas en vivo (bitácora, personas, uso), que caen al caché.
+let _degraded = false;
+export function setDegraded() { _degraded = true; }
+export function isDegraded() { return _degraded; }
 const TOKEN_KEY = "u2s_token";
 
 export function getToken(): string {

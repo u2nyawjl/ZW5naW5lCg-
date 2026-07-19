@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { clearToken, getToken, setToken } from "./lib/api";
+import { API_BASE, clearToken, getToken, isDegraded, setDegraded, setToken } from "./lib/api";
 import { clearCache } from "./lib/useCached";
 import { signInWithDashboardToken } from "./lib/firebase";
 import { useDoc } from "./lib/useFirestore";
@@ -38,7 +38,19 @@ function Login({ onOk }: { onOk: () => void }) {
     const token = value.trim();
     setToken(token);
     try {
-      await signInWithDashboardToken(token); // valida y abre sesión Firebase
+      // Quien manda es el gateway: si acepta el token, se entra. Firebase solo
+      // añade las vistas en vivo. Atar el acceso a Firebase dejaba a Nico fuera
+      // de SUS PROPIOS datos —que están en GitHub, no en Firestore— el día que
+      // Google tumbó la service account (2026-07-19).
+      const r = await fetch(`${API_BASE}/api/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("token");
+      try {
+        await signInWithDashboardToken(token);
+      } catch {
+        setDegraded();   // se entra igual, sin las vistas en vivo
+      }
       onOk();
     } catch {
       clearToken();
@@ -110,14 +122,27 @@ export function App() {
   useEffect(() => {
     const token = getToken();
     if (!token) { setBooting(false); return; }
-    signInWithDashboardToken(token)
-      .then(() => setAuthed(true))
-      .catch(() => clearToken())
-      .finally(() => setBooting(false));
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error("token");
+        // Firebase es opcional: si no responde, se entra en modo degradado.
+        try { await signInWithDashboardToken(token); } catch { setDegraded(); }
+        setAuthed(true);
+      } catch {
+        clearToken();
+      } finally {
+        setBooting(false);
+      }
+    })();
   }, []);
 
   if (booting) return <div className="login"><div className="empty">Conectando…</div></div>;
   if (!authed) return <Login onOk={() => setAuthed(true)} />;
+
+  const degradado = isDegraded();
 
   return (
     <div className="app">
@@ -129,6 +154,13 @@ export function App() {
           </button>
         ))}
       </div>
+      {degradado && (
+        <div className="degraded">
+          Firebase no responde: las vistas en vivo (bitácora, personas, uso) muestran
+          lo último guardado. La bóveda, los archivos y el chat vienen de GitHub y
+          funcionan con normalidad.
+        </div>
+      )}
       <div className="workspace">
         <div className="main">
           {view === "chat" && <Chat />}
