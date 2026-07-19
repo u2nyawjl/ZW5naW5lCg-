@@ -218,6 +218,25 @@ a:hover { color: #9df0ff; }
 .markdown hr { border: none; margin: 16px 0; }
 .markdown ul, .markdown ol { padding-left: 22px; }
 
+/* Monitor vital: selector de ventana (día/semana/mes) sobre el electro. */
+.hb-ranges { display: flex; gap: 10px; margin: 0 0 8px; }
+.hb-range {
+  font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; cursor: pointer;
+  color: var(--muted); padding: 2px 8px; border-radius: 999px;
+  border: 1px solid transparent;
+}
+.hb-range:hover { color: var(--cyan); }
+.hb-range.on { color: var(--cyan); border-color: var(--border-lit); }
+.hb-stat.err b { color: #ff8b8b; }
+
+/* La bitácora es un archivo de meses: se pinta por tandas. */
+.tl-more {
+  margin: 14px auto 4px; padding: 8px 16px; width: fit-content; cursor: pointer;
+  font-size: 11px; letter-spacing: 0.4px; color: var(--muted);
+  border: 1px solid var(--border-lit); border-radius: 999px;
+}
+.tl-more:hover { color: var(--cyan); }
+
 /* Correo descartado: sigue en la bóveda (es la señal de que el clasificador
    falló), pero se aparta de la vista. */
 .tree .file.dismissed { opacity: 0.4; text-decoration: line-through; }

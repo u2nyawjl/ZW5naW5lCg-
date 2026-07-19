@@ -5,7 +5,7 @@ Cada tick (cron cada 30 min, o wake por correo urgente, o disparo manual):
   2. Ingesta de correo: clasifica lo nuevo con el LLM y guarda lo relevante.
   3. Recordatorios: avisa de lo que entra en ventana (día antes / inminente).
   4. Vuelca los eventos al timeline durable de la bóveda.
-  5. Escribe un parte de estado corto (plantilla, sin gastar tokens).
+  5. Anota sus constantes vitales (una fila por latido en heartbeat/heart.beat).
   6. Avisa al dueño SOLO si hay algo que amerite.
 
 Cada fase falla por su cuenta: que Calendar esté caído no debe dejar sin ingesta al correo.
@@ -30,7 +30,7 @@ from app.integrations.firestore import FirestoreClient
 from app.integrations.github import GitHubClient
 from app.integrations.google import GoogleClient
 from app.security.virustotal import VirusTotalClient
-from app.vault import embed, manifest, people, timeline
+from app.vault import embed, manifest, people, timeline, vitals
 
 
 @dataclass
@@ -213,13 +213,10 @@ async def beat() -> int:
             pulse.errors.append(f"firestore: {type(exc).__name__}: {exc}")
             print(f"❌ Firestore· {exc}")
 
-    # 5. Parte de estado en la bóveda
+    # 5. Constantes vitales: una fila por latido en un único heart.beat
     try:
-        await vault.write_note(
-            f"heartbeat/{now:%Y-%m-%d}.md", _render_note(pulse),
-            f"heartbeat: {now:%Y-%m-%d} ({trigger})",
-        )
-        print(f"✅ Bóveda   · heartbeat/{now:%Y-%m-%d}.md")
+        path = await vitals.record(vault, pulse)
+        print(f"✅ Bóveda   · {path}")
     except Exception as exc:
         pulse.errors.append(f"bóveda: {exc}")
 
@@ -329,31 +326,5 @@ def _render_report(pulse: Pulse) -> tuple[str, str]:
     if pulse.errors:
         body += ["", "Fallos:"] + [f"  ⚠️ {e}" for e in pulse.errors]
     return subject, "\n".join(body)
-
-
-def _render_note(pulse: Pulse) -> str:
-    lines = [
-        "---", "tipo: heartbeat", f"fecha: {pulse.at:%Y-%m-%d}",
-        f"disparo: {pulse.trigger}", f"actualizado: {pulse.at.isoformat(timespec='seconds')}",
-        "---", "", f"# Latido · {pulse.at:%Y-%m-%d}", "",
-        f"Despertado por **{pulse.trigger}** a las {pulse.at:%H:%M} UTC.", "",
-        "## Correo",
-        f"- Procesados: {pulse.intake.processed}",
-        f"- Relevantes: {pulse.intake.relevant}",
-        f"- Archivos guardados: {pulse.intake.files_stored}"
-        + (f" · bloqueados: {pulse.intake.files_blocked}" if pulse.intake.files_blocked else ""),
-    ]
-    if pulse.intake.notes:
-        lines += ["", "## Guardado", ""] + [f"- [[{n}]]" for n in pulse.intake.notes]
-    if pulse.reminders_sent:
-        lines += ["", "## Recordatorios enviados", ""] + [f"- ⏰ {r}" for r in pulse.reminders_sent]
-    lines += ["", "## Tareas abiertas", ""]
-    lines += [f"- [ ] #{t['number']} {t['title']}" for t in pulse.tasks] or ["_Ninguna._"]
-    if pulse.errors:
-        lines += ["", "## Fallos", ""] + [f"- ⚠️ {e}" for e in pulse.errors]
-    lines += ["", "---", "_Generado por U2NyaWJl._"]
-    return "\n".join(lines)
-
-
 if __name__ == "__main__":
     sys.exit(asyncio.run(beat()))

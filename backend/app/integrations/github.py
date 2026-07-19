@@ -78,6 +78,18 @@ class GitHubClient:
             sha=data["sha"],
         )
 
+    async def delete_note(self, path: str, message: str) -> bool:
+        """Borra una nota. False si ya no estaba (borrar dos veces no es un fallo)."""
+        existing = await self.read_note(path, fresh=True)
+        if not existing:
+            return False
+        resp = await self._request(
+            "DELETE", f"/repos/{self.owner}/{self.repo}/contents/{path}",
+            json={"message": message, "sha": existing.sha, "branch": self.branch},
+        )
+        resp.raise_for_status()
+        return True
+
     async def write_note(self, path: str, content: str, message: str, attempts: int = 3) -> str:
         """Crea o sobrescribe una nota. Devuelve el sha del commit.
 

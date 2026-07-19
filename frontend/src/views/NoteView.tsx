@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, VaultEntry, LogEvent, ServiceRow } from "../lib/api";
-import { useCollection } from "../lib/useFirestore";
+import { decode as decodeToon, Row } from "../lib/toon";
 import { withDiagrams } from "../lib/plantuml";
 import { Mermaid } from "../components/Mermaid";
 
@@ -43,16 +43,26 @@ function Matrix({ content }: { content: string }) {
   );
 }
 
-// ───────────────────────── timeline (cards desde el json) ──────────────────
-function TimelineCards({ json }: { json: string }) {
-  const events = useMemo(() => {
-    try { const a = JSON.parse(json); return Array.isArray(a) ? (a as LogEvent[]) : []; }
-    catch { return []; }
-  }, [json]);
-  if (!events.length) return <div className="empty">Sin eventos en este archivo.</div>;
+// ───────────────────── timeline (cards desde timeline.dat) ─────────────────
+// El archivo trae meses de bitácora; la vista pinta los más recientes y deja
+// pedir más, que es más útil que un scroll de seis mil filas.
+const TL_PAGE = 120;
+
+function TimelineCards({ toon }: { toon: string }) {
+  const [limite, setLimite] = useState(TL_PAGE);
+  const { events, error } = useMemo(() => {
+    try {
+      const rows = (decodeToon(toon).events as unknown as LogEvent[]) || [];
+      return { events: rows, error: "" };
+    } catch (e: any) {
+      return { events: [] as LogEvent[], error: String(e?.message || e) };
+    }
+  }, [toon]);
+  if (error) return <div className="empty">Bitácora ilegible: {error}</div>;
+  if (!events.length) return <div className="empty">Sin eventos en la bitácora.</div>;
   return (
     <div className="tl-cards">
-      {events.map((e, i) => (
+      {events.slice(0, limite).map((e, i) => (
         <div key={i} className={`tl-card ${e.level}`}>
           <div className="tl-ico">{evIcon(e.type)}</div>
           <div className="tl-main">
@@ -64,6 +74,11 @@ function TimelineCards({ json }: { json: string }) {
           </div>
         </div>
       ))}
+      {limite < events.length && (
+        <div className="tl-more" onClick={() => setLimite((n) => n + TL_PAGE)}>
+          ver más ({events.length - limite} eventos anteriores)
+        </div>
+      )}
     </div>
   );
 }
@@ -107,14 +122,16 @@ function humanInterval(ms: number): string {
   if (m >= 60) return `≈ cada ${(m / 60).toFixed(1)} h`;
   return `≈ cada ${Math.round(m)} min`;
 }
-function activityEcg(times: number[]): string {
-  const now = Date.now(), start = now - 24 * 3600 * 1000;
+// Cada latido pesa por lo que hizo (correos + eventos + avisos), no por existir:
+// una hora en la que llegaron cinco correos debe verse más alta que una vacía.
+function activityEcg(points: { t: number; w: number }[], windowMs: number): string {
+  const now = Date.now(), start = now - windowMs;
   const W = 560, mid = 72, BINS = 56;
   const counts = new Array(BINS).fill(0);
-  times.forEach((t) => {
+  points.forEach(({ t, w }) => {
     if (t >= start && t <= now) {
       const b = Math.min(BINS - 1, Math.floor((t - start) / ((now - start) / BINS)));
-      counts[b]++;
+      counts[b] += Math.max(1, w);
     }
   });
   const max = Math.max(1, ...counts);
@@ -157,40 +174,77 @@ function ServicesPanel() {
   );
 }
 
-function HeartbeatMonitor() {
-  const events = useCollection<LogEvent>("timeline", "ts", 300);
-  const now = Date.now();
-  const cols: [string, Date][] = [
-    ["Hoy", new Date(now - 864e5)], ["Semana", new Date(now - 7 * 864e5)], ["Mes", new Date(now - 30 * 864e5)],
-  ];
+const RANGOS = [
+  ["Día", 24 * 3600e3], ["Semana", 7 * 24 * 3600e3], ["Mes", 30 * 24 * 3600e3],
+] as const;
 
-  // BPM real: mediana del intervalo entre latidos consecutivos.
-  const beats = events.filter((e) => e.type === "heartbeat").map((e) => +new Date(e.ts)).sort((a, b) => a - b);
+// Lee heartbeat/heart.beat: una fila por latido, formato TOON. Antes esto salía
+// de Firestore; ahora la bóveda es la única fuente y el panel muestra justo lo
+// que quedó escrito. Se pierde el "en vivo", pero los latidos son horarios.
+function HeartbeatMonitor() {
+  const [beats, setBeats] = useState<Row[] | null>(null);
+  const [err, setErr] = useState("");
+  const [rango, setRango] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    api.vault("heartbeat/heart.beat")
+      .then((r) => {
+        if (!alive) return;
+        setBeats(r.type === "file" ? ((decodeToon(r.content).beats as Row[]) || []) : []);
+      })
+      .catch((e) => alive && setErr(String(e?.message || e)));
+    return () => { alive = false; };
+  }, []);
+
+  if (err) return <div className="empty">No se pudo leer heart.beat: {err}</div>;
+  if (!beats) return <div className="empty">Leyendo constantes vitales…</div>;
+  if (!beats.length) return <div className="empty">Todavía no hay latidos registrados.</div>;
+
+  const num = (b: Row, k: string) => Number(b[k] ?? 0);
+  const at = (b: Row) => +new Date(String(b.ts));
+  const [etiqueta, ventana] = RANGOS[rango];
+
+  // BPM real: mediana del hueco entre latidos consecutivos. Por eso heart.beat
+  // guarda una fila por latido y no un total por día.
+  const ts = beats.map(at).sort((a, b) => a - b);
   let medianGap = 0;
-  if (beats.length >= 2) {
-    const gaps = beats.slice(1).map((t, i) => t - beats[i]).sort((a, b) => a - b);
+  if (ts.length >= 2) {
+    const gaps = ts.slice(1).map((t, i) => t - ts[i]).sort((a, b) => a - b);
     medianGap = gaps[Math.floor(gaps.length / 2)];
   }
   const bpm = medianGap > 0 ? 60000 / medianGap : 0;
-  const ecg = activityEcg(events.map((e) => +new Date(e.ts)));
 
-  const tally = (since: Date) => {
-    const evs = events.filter((e) => new Date(e.ts) >= since);
+  const ecg = activityEcg(
+    beats.map((b) => ({
+      t: at(b),
+      w: num(b, "correos") + num(b, "eventos") + num(b, "avisos"),
+    })),
+    ventana,
+  );
+
+  const tally = (ms: number) => {
+    const desde = Date.now() - ms;
+    const en = beats.filter((b) => at(b) >= desde);
+    const sum = (k: string) => en.reduce((n, b) => n + num(b, k), 0);
     return {
-      latidos: evs.filter((e) => e.type === "heartbeat").length,
-      correos: evs.filter((e) => e.type === "email.saved").length,
-      eventos: evs.filter((e) => e.type === "calendar.created").length,
-      personas: evs.filter((e) => e.type === "people.added").length,
+      latidos: en.length, correos: sum("correos"), relevantes: sum("relevantes"),
+      eventos: sum("eventos"), personas: sum("personas"), errores: sum("errores"),
     };
   };
 
   return (
     <div className="hb">
-      <div className="hb-monitor">
+      <div className="hb-top">
         <div className="hb-bpm">
-          <span className="hb-bpm-n">{fmtBpm(bpm)}</span>
-          <span className="hb-bpm-u">BPM</span>
-          {medianGap > 0 && <span className="hb-bpm-sub">{humanInterval(medianGap)}</span>}
+          <div className="hb-bpm-n">{fmtBpm(bpm)}</div>
+          <div className="hb-bpm-u">BPM · {medianGap ? humanInterval(medianGap) : "sin datos"}</div>
+        </div>
+        <div className="hb-ranges">
+          {RANGOS.map(([lab], i) => (
+            <span key={lab} className={`hb-range ${i === rango ? "on" : ""}`}
+                  onClick={() => setRango(i)}>{lab}</span>
+          ))}
         </div>
         <div className="ecg">
           <svg viewBox="0 0 560 120" preserveAspectRatio="none">
@@ -200,21 +254,25 @@ function HeartbeatMonitor() {
         </div>
       </div>
       <div className="hb-cols">
-        {cols.map(([label, since]) => {
-          const t = tally(since);
+        {RANGOS.map(([lab, ms]) => {
+          const t = tally(ms);
           return (
-            <div key={label} className="hb-col">
-              <div className="hb-col-h">{label}</div>
+            <div key={lab} className="hb-col">
+              <div className="hb-col-h">{lab}</div>
               <div className="hb-stat"><b>{t.latidos}</b> latidos</div>
-              <div className="hb-stat"><b>{t.correos}</b> correos</div>
+              <div className="hb-stat"><b>{t.correos}</b> correos · <b>{t.relevantes}</b> rel.</div>
               <div className="hb-stat"><b>{t.eventos}</b> eventos</div>
               <div className="hb-stat"><b>{t.personas}</b> personas</div>
+              {t.errores > 0 && <div className="hb-stat err"><b>{t.errores}</b> fallos</div>}
             </div>
           );
         })}
       </div>
       <ServicesPanel />
-      <div className="hb-foot">Actividad real de las últimas 24 h · cada pico es un latido o suceso.</div>
+      <div className="hb-foot">
+        {beats.length} latidos registrados · el electro cubre {etiqueta.toLowerCase()},
+        y cada pico vale por lo que hizo ese latido.
+      </div>
     </div>
   );
 }
@@ -233,14 +291,14 @@ export function NoteView({ active, content, tree, onOpen }: {
   if (isFolder) {
     if (root === "documents") return <DocBrowser entries={tree.documents || []} onOpen={onOpen} />;
     if (root === "heartbeat") return <HeartbeatMonitor />;
-    if (root === "timeline") return <FolderTimeline entries={tree.timeline || []} />;
+    if (root === "timeline") return <TimelineFile />;
     // system / inbox como carpeta: lista simple para elegir nota.
     return <FolderList entries={tree[root] || []} onOpen={onOpen} />;
   }
 
   // Vista de archivo, con estilo según la carpeta.
   if (root === "system") return <Matrix content={content} />;
-  if (root === "timeline") return <TimelineCards json={content.replace(/^```json\n|\n```$/g, "")} />;
+  if (root === "timeline") return <TimelineCards toon={content} />;
   if (root === "heartbeat") return <HeartbeatMonitor />;
   return <Paper content={content} />; // inbox, documents y por defecto
 }
@@ -256,13 +314,18 @@ function FolderList({ entries, onOpen }: { entries: VaultEntry[]; onOpen: (p: st
   );
 }
 
-function FolderTimeline({ entries }: { entries: VaultEntry[] }) {
-  const [json, setJson] = useState("");
-  const latest = entries.map((e) => e.path).sort().reverse()[0];
+// Ya no hay que buscar el archivo del día más reciente: la bitácora entera es
+// timeline/timeline.dat.
+function TimelineFile() {
+  const [toon, setToon] = useState<string | null>(null);
   useEffect(() => {
-    if (!latest) return;
-    api.vault(latest).then((r) => { if (r.type === "file") setJson(r.content); }).catch(() => {});
-  }, [latest]);
-  if (!latest) return <div className="empty">Sin bitácora todavía.</div>;
-  return <TimelineCards json={json} />;
+    let alive = true;
+    api.vault("timeline/timeline.dat")
+      .then((r) => alive && setToon(r.type === "file" ? r.content : ""))
+      .catch(() => alive && setToon(""));
+    return () => { alive = false; };
+  }, []);
+  if (toon === null) return <div className="empty">Leyendo la bitácora…</div>;
+  if (!toon) return <div className="empty">Sin bitácora todavía.</div>;
+  return <TimelineCards toon={toon} />;
 }
