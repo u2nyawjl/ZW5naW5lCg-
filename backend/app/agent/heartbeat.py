@@ -119,7 +119,14 @@ async def beat() -> int:
 
     mission = await _read_vault_text(vault, "system/mission.md", "Secretario general.")
     state = await _read_vault_text(vault, "system/state.md", "")
+    # El núcleo de la memoria: lo que el agente debe saber SIN que nadie pregunte
+    # (quién es quién, qué capstone es el vigente, qué material es de otro semestre).
+    # El resto de /memory no se inyecta: se encuentra buscando, y por eso puede crecer
+    # sin encarecer cada llamada.
+    nucleo = await _read_vault_text(vault, "memory/nucleo.md", "")
     contexto = f"{mission}\n\n## Contexto actual\n{state}" if state else mission
+    if nucleo:
+        contexto += f"\n\n## Lo que ya sabes\n{nucleo}"
 
     # 1. Tareas. Los issues de seguridad (sondeos al gateway) también viven en Issues,
     # pero no son tareas del dueño: se excluyen para no ensuciar su lista.

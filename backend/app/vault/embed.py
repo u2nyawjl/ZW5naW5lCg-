@@ -27,11 +27,13 @@ EMBED_DIM = 256
 
 # Sube esto al cambiar la forma de una entrada: obliga a reconstruir en vez de
 # servir un índice viejo al que le faltan campos.
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 
 # Solo prosa. Los .json (personas, bitácora, manifiesto) son datos estructurados:
 # meter 55 personas en un único vector no dice nada. Para eso el modelo hace `cat`.
-INDEXABLE = ("inbox/", "documents/", "notes/", "system/")
+# /memory entra aquí porque un recuerdo que no se puede encontrar no es un recuerdo.
+# El núcleo va aparte: ese se inyecta siempre, no hace falta buscarlo.
+INDEXABLE = ("inbox/", "documents/", "notes/", "system/", "memory/")
 
 # El modelo corta cerca de 8k tokens; una nota más larga se trunca al indexar.
 MAX_CHARS = 8000

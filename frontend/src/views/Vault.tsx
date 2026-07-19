@@ -9,7 +9,7 @@ const noteCache = new Map<string, { content: string; hash: string }>();
 
 // /notes es el bloc del agente: lo que escribe por el shell cuando Nico se lo dicta.
 // Si falta aquí, el agente escribe y nadie lo ve nunca.
-const ROOTS = ["system", "inbox", "documents", "notes", "heartbeat", "timeline"];
+const ROOTS = ["system", "memory", "inbox", "documents", "notes", "heartbeat", "timeline"];
 
 type Tree = Record<string, VaultEntry[]>;
 

@@ -30,8 +30,14 @@ from datetime import datetime
 #   mail       el cursor de UID: corromperlo = reprocesar o saltarse correo
 #   timeline / files / heartbeat   bitácoras que escribe la máquina
 READONLY = ("proc", "system", "mail", "timeline", "files", "heartbeat")
-WRITABLE = ("inbox", "documents", "notes")
+WRITABLE = ("inbox", "documents", "notes", "memory")
 WRITABLE_EXT = (".md", ".json")
+
+# El núcleo se inyecta en TODOS los prompts, así que quien lo escribe decide cómo
+# se comporta el agente para siempre. Eso es de Nico y solo de Nico: se edita desde
+# el dashboard. Un recuerdo normal solo se lee si la búsqueda lo trae a cuento;
+# el núcleo se lee siempre, y esa diferencia es justo la que hay que proteger.
+PROTECTED = ("memory/nucleo.md",)
 
 # El índice es un blob de base64 de cientos de KB: grep -r encontraría basura en él
 # y llenaría la respuesta. Se lee con `search`, no con grep.
@@ -222,6 +228,9 @@ class Shell:
         root = path.split("/")[0]
         if root in READONLY:
             return f"/{root} es de solo lectura"
+        if path in PROTECTED:
+            return (f"/{path} solo lo edita Nico desde el dashboard: se inyecta en todos "
+                    f"tus prompts. Para un recuerdo normal usa /memory/<nombre>.md")
         if root not in WRITABLE:
             return "solo se puede escribir en " + ", ".join("/" + w for w in WRITABLE)
         if check_ext and not path.endswith(WRITABLE_EXT):

@@ -206,6 +206,30 @@ async def test_escrituras_prohibidas(cmd):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cmd", [
+    'echo x > memory/nucleo.md',
+    'echo x >> memory/nucleo.md',
+    'rm /memory/nucleo.md',
+    'mv /memory/nucleo.md /memory/otro.md',
+])
+async def test_nucleo_de_memoria_es_intocable(cmd):
+    """El núcleo va en TODOS los prompts: quien lo escribe define la conducta del
+    agente. Si un correo lograra colar algo ahí, mandaría para siempre."""
+    sh = make_shell()
+    out = await sh.run(cmd)
+    assert "solo lo edita Nico" in out
+    assert sh.log == []
+
+
+@pytest.mark.asyncio
+async def test_memoria_normal_si_es_escribible():
+    sh = make_shell()
+    out = await sh.run('echo "entrega movida al 5" > memory/entrega.md')
+    assert "escrito /memory/entrega.md" in out
+    assert "entrega movida al 5" in sh.store["memory/entrega.md"]
+
+
+@pytest.mark.asyncio
 async def test_rm_recursivo_prohibido():
     sh = make_shell()
     assert "deshabilitados" in await sh.run("rm -rf /inbox")
