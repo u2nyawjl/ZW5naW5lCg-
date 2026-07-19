@@ -218,6 +218,15 @@ a:hover { color: #9df0ff; }
 .markdown hr { border: none; margin: 16px 0; }
 .markdown ul, .markdown ol { padding-left: 22px; }
 
+/* Correo descartado: sigue en la bóveda (es la señal de que el clasificador
+   falló), pero se aparta de la vista. */
+.tree .file.dismissed { opacity: 0.4; text-decoration: line-through; }
+.dismiss-toggle {
+  margin-left: auto; font-size: 10.5px; letter-spacing: 0.4px; cursor: pointer;
+  color: var(--muted); text-transform: uppercase;
+}
+.dismiss-toggle:hover { color: var(--cyan); }
+
 /* Diagramas dentro de una nota: ```mermaid se dibuja aquí, ```plantuml llega como <img>.
    Ambos se centran y no desbordan el panel; si son anchos, hacen scroll ellos, no la página. */
 .mermaid-out, .markdown img[alt="diagrama"] {

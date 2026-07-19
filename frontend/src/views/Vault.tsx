@@ -43,6 +43,12 @@ export function Vault() {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [dismissedTick, setDismissedTick] = useState(0);
+
+  // Qué notas están descartadas se sabe leyendo su cabecera, y la precarga ya
+  // trae todas: no hace falta un índice aparte que mantener en sincronía.
+  const isDismissed = (p: string) => /^descartado:/m.test(noteCache.get(p)?.content || "");
 
   // Editable: archivos de texto que se muestran como nota (no los tableros heartbeat/timeline).
   const fileRoot = active.split("/")[0];
@@ -69,14 +75,33 @@ export function Vault() {
   useEffect(() => {
     if (!tree) return;
     const paths = ROOTS.flatMap((r) => (tree[r] || []).map((f) => f.path));
-    paths.forEach(async (p) => {
+    let alive = true;
+    Promise.all(paths.map(async (p) => {
       if (noteCache.has(p)) return;
       try {
         const r = await api.vault(p);
         if (r.type === "file") noteCache.set(p, { content: r.content, hash: await sha256(r.content) });
       } catch { /* nota ilegible: se reintenta al abrirla */ }
-    });
+      // Al terminar la precarga ya se sabe qué está descartado: se avisa al árbol,
+      // que si no seguiría mostrando notas que deberían estar ocultas.
+    })).then(() => { if (alive) setDismissedTick((n) => n + 1); });
+    return () => { alive = false; };
   }, [JSON.stringify(tree)]);
+
+  // El árbol que se pinta: sin las notas descartadas, salvo que se pidan.
+  const shown = useMemo(() => {
+    const acc: Tree = {};
+    for (const root of ROOTS) {
+      const files = tree?.[root] || [];
+      acc[root] = showDismissed ? files : files.filter((f) => !isDismissed(f.path));
+    }
+    return acc;
+  }, [JSON.stringify(tree), dismissedTick, showDismissed]);
+
+  const nDismissed = useMemo(
+    () => ROOTS.flatMap((r) => tree?.[r] || []).filter((f) => isDismissed(f.path)).length,
+    [JSON.stringify(tree), dismissedTick],
+  );
 
   function show(path: string, text: string, h: string) {
     setRaw(text);
@@ -115,6 +140,31 @@ export function Vault() {
 
   function startEdit() { setDraft(raw); setSaveErr(""); setEditing(true); }
 
+  // Descartar no borra: marca la cabecera. La nota sigue en la bóveda porque el
+  // descarte ES la señal — el clasificador dejó pasar esto y Nico dijo que no.
+  // El día que afinemos la relevancia, estos son los ejemplos negativos.
+  async function dismiss(undo = false) {
+    setSaving(true);
+    setSaveErr("");
+    try {
+      const body = raw.replace(/^descartado:.*\n/m, "");
+      const next = undo ? body : body.replace(
+        /^---\n([\s\S]*?)\n---/,
+        (_m, head) => `---\n${head}\ndescartado: ${new Date().toISOString().slice(0, 10)}\n---`,
+      );
+      if (next === body && !undo) throw new Error("sin cabecera");
+      await api.writeVault(active, next);
+      const h = await sha256(next);
+      noteCache.set(active, { content: next, hash: h });
+      show(active, next, h);
+      setDismissedTick((n) => n + 1);   // relee qué está descartado para el árbol
+    } catch {
+      setSaveErr("No se pudo descartar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save() {
     setSaving(true);
     setSaveErr("");
@@ -134,7 +184,14 @@ export function Vault() {
   return (
     <div className="grid2">
       <div className="panel">
-        <div className="panel-header"><span className="accent">Bóveda</span></div>
+        <div className="panel-header">
+          <span className="accent">Bóveda</span>
+          {nDismissed > 0 && (
+            <span className="dismiss-toggle" onClick={() => setShowDismissed((v) => !v)}>
+              {showDismissed ? "ocultar" : "ver"} descartados ({nDismissed})
+            </span>
+          )}
+        </div>
         <div className="panel-body">
           <ul className="tree">
             {ROOTS.map((root) => (
@@ -142,8 +199,10 @@ export function Vault() {
                 <div className={`dir ${active === root ? "active" : ""}`}
                      onClick={() => openFolder(root)}>▸ /{root}</div>
                 <ul className="tree">
-                  {(tree?.[root] || []).map((f) => (
-                    <li key={f.path} className={`file ${active === f.path ? "active" : ""}`}
+                  {(shown[root] || []).map((f) => (
+                    <li key={f.path}
+                        className={`file ${active === f.path ? "active" : ""}`
+                          + (isDismissed(f.path) ? " dismissed" : "")}
                         onClick={() => open(f.path)}>
                       ▪ {f.name}
                     </li>
@@ -172,7 +231,20 @@ export function Vault() {
                         onClick={() => setEditing(false)}>cancelar</span>
                 </>
               ) : (
-                <span className="link-btn" onClick={startEdit}>✎ editar</span>
+                <>
+                  {/* Descartar solo tiene sentido en un correo: es el juicio de Nico
+                      sobre si el clasificador acertó. */}
+                  {active.startsWith("inbox/") && (
+                    isDismissed(active)
+                      ? <span className="subtab" style={{ color: "var(--muted)" }}
+                              onClick={saving ? undefined : () => dismiss(true)}>
+                          {saving ? "…" : "↩ recuperar"}</span>
+                      : <span className="subtab" style={{ color: "var(--muted)" }}
+                              onClick={saving ? undefined : () => dismiss()}>
+                          {saving ? "…" : "⊘ descartar"}</span>
+                  )}
+                  <span className="link-btn" onClick={startEdit}>✎ editar</span>
+                </>
               )}
             </span>
           )}
