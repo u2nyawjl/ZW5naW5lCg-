@@ -179,7 +179,8 @@ async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: St
             drive_link, drive_id = uploaded.link, uploaded.id
             # Compartirlo con Nico es lo que permite que el visor de Drive
             # funcione incrustado en el dashboard, con SU cuenta.
-            compartido = await google.share(drive_id, settings.owner_email)
+            compartido = (await google.share(drive_id, settings.owner_email)
+                          if settings.share_files_with_owner else False)
             events.append(timeline.event(
                 "file.scanned", f"Subida procesada: {item['filename']}",
                 vt=str(report.virustotal.status), sha256=report.sha256[:12]))

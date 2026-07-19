@@ -228,7 +228,7 @@ async def beat() -> int:
 
     try:
         compartidos, errs = await maintenance.backfill_sharing(
-            vault, google, settings.owner_email)
+            vault, google, settings.owner_email if settings.share_files_with_owner else "")
         pulse.errors.extend(errs)
         if compartidos:
             print(f"✅ Drive    · {compartidos} archivo(s) compartido(s) con el dueño")

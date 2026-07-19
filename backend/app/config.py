@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     # mire. Vacío = no hay cola: la subida se rechaza en vez de guardarse sin escanear.
     firebase_storage_bucket: str = ""
 
+    # Compartir los archivos del agente con el dueño es lo que permite el visor
+    # de Drive incrustado. Queda APAGADO por defecto: hacerlo en lote desde IPs
+    # de datacenter es un patrón que los sistemas antiabuso de Google leen como
+    # spam, y coincidió con que se deshabilitara el cliente OAuth (2026-07-19).
+    # Enciéndelo solo cuando esté claro que no fue eso.
+    share_files_with_owner: bool = False
+
     # --- Correo ---
     gmail_address: str = ""
     owner_email: str = ""

@@ -115,7 +115,9 @@ export function FileViewer({ file, onClose }: { file: FileRow; onClose: () => vo
 // tenga la sesión, y los archivos son del agente — por eso el latido se los
 // comparte. Si aun así falla (sesión con otra cuenta), queda el visor local.
 function Documento({ file, extraido }: { file: FileRow; extraido: string }) {
-  const [modo, setModo] = useState<"google" | "local">("google");
+  // Por defecto el local: el de Google necesita que el archivo esté compartido
+  // contigo, y ese compartido está apagado (ver share_files_with_owner).
+  const [modo, setModo] = useState<"google" | "local">("local");
   const driveId = file.drive_id || driveIdFromLink(file.drive_link);
 
   if (modo === "google" && driveId) {
