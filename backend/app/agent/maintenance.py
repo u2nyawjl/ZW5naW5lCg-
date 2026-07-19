@@ -47,8 +47,16 @@ def _now() -> str:
 
 # ── 1. Resúmenes que faltan (determinista) ────────────────────────────────
 
-def _seccion(nota: str, titulo: str) -> str:
-    m = re.search(rf"^## {titulo}\s*$([\s\S]*?)(?=^## |\Z)", nota, re.M)
+def _seccion(nota: str, titulo: str, hasta_el_final: bool = False) -> str:
+    """Extrae una sección de la nota.
+
+    `hasta_el_final` importa más de lo que parece: el texto extraído de un pptx
+    trae sus propias cabeceras («## Diapositiva 3»), así que cortar en el
+    siguiente `##` dejaba el contenido en cuatro palabras y el archivo se
+    descartaba por corto. El contenido extraído siempre es la última sección.
+    """
+    fin = r"\Z" if hasta_el_final else r"(?=^## |\Z)"
+    m = re.search(rf"^## {titulo}\s*$([\s\S]*?){fin}", nota, re.M)
     return (m.group(1) if m else "").strip()
 
 
@@ -81,7 +89,7 @@ async def backfill_summaries(vault: GitHubClient, brain, limite: int = 3) -> tup
             hechos += 1
             continue
 
-        texto = _seccion(nota, "Contenido extraído")
+        texto = _seccion(nota, "Contenido extraído", hasta_el_final=True)
         if len(texto) < 40:
             continue
 

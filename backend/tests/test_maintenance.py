@@ -177,3 +177,46 @@ async def test_respeta_el_tope_por_latido():
     brain = FakeBrain()
     hechos, _ = await maintenance.backfill_summaries(v, brain, limite=3)
     assert hechos == 3
+
+
+NOTA_PPTX = """---
+tipo: documento
+---
+
+# Exposicion.pptx
+
+## Análisis de seguridad
+
+- **VirusTotal:** unknown
+
+## Contenido extraído
+
+## Diapositiva 1
+Título del proyecto
+
+## Diapositiva 2
+Contexto y objetivos del trabajo, con el detalle de lo comprometido.
+
+## Diapositiva 3
+Metodología y resultados parciales obtenidos hasta la fecha del informe.
+"""
+
+
+@pytest.mark.asyncio
+async def test_un_pptx_con_cabeceras_propias_si_se_resume():
+    """El texto de un pptx trae sus propias cabeceras «## Diapositiva N». Cortar
+    la sección en el siguiente `##` la dejaba en cuatro palabras y el archivo se
+    descartaba por corto: el resumen no se escribía nunca y nadie sabía por qué."""
+    v = FakeVault({
+        "files/manifest.json": json.dumps([
+            {"filename": "Exposicion.pptx", "sha256": "b", "decision": "allow",
+             "note_path": "documents/b-expo.md"}]),
+        "documents/b-expo.md": NOTA_PPTX,
+    })
+    brain = FakeBrain()
+    hechos, errores = await maintenance.backfill_summaries(v, brain)
+    assert hechos == 1 and not errores
+
+    # Y el troceo devuelve TODAS las diapositivas, no solo la primera.
+    texto = maintenance._seccion(NOTA_PPTX, "Contenido extraído", hasta_el_final=True)
+    assert "Diapositiva 3" in texto and len(texto) > 200

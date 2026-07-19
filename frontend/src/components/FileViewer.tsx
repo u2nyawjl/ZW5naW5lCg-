@@ -19,9 +19,14 @@ function ext(name: string): string {
   return name.split(".").pop()?.toLowerCase() || "";
 }
 
-/** Trocea la nota de la bóveda en sus secciones para no re-descargar nada. */
-function seccion(nota: string, titulo: string): string {
-  const re = new RegExp(`^## ${titulo}\\s*$([\\s\\S]*?)(?=^## |\\Z)`, "m");
+/** Trocea la nota de la bóveda en sus secciones para no re-descargar nada.
+ *
+ *  `hastaElFinal` no es un capricho: el texto extraído de un pptx trae sus
+ *  propias cabeceras («## Diapositiva 3»), así que cortar en el siguiente `##`
+ *  mostraría solo la primera diapositiva. El contenido siempre va al final. */
+function seccion(nota: string, titulo: string, hastaElFinal = false): string {
+  const fin = hastaElFinal ? "$" : "(?=^## |$(?![\\s\\S]))";
+  const re = new RegExp(`^## ${titulo}\\s*$([\\s\\S]*?)${fin}`, "m");
   return (re.exec(nota)?.[1] || "").trim();
 }
 
@@ -42,7 +47,7 @@ export function FileViewer({ file, onClose }: { file: FileRow; onClose: () => vo
   const resumen = useMemo(
     () => (nota ? seccion(nota, "Resumen") : ""), [nota]);
   const extraido = useMemo(
-    () => (nota ? seccion(nota, "Contenido extraído") : ""), [nota]);
+    () => (nota ? seccion(nota, "Contenido extraído", true) : ""), [nota]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>

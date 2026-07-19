@@ -101,13 +101,20 @@ def _render_note(report, item: dict, resumen: str = "") -> str:
 
 async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: StorageClient,
                 brain=None):
-    """Procesa lo que haya en cola. Devuelve (procesados, en_espera, errores)."""
+    """Procesa lo que haya en cola.
+
+    Devuelve SIEMPRE (procesados, en_espera, errores, eventos): las cuatro, por
+    todos los caminos.
+    """
+    # Los tres retornos devuelven la MISMA forma: (hechos, esperando, errores,
+    # eventos). Que el camino corto devolviera una tupla más corta reventaba el
+    # latido justo cuando no había nada que hacer, que es casi siempre.
     if not storage.configured:
-        return 0, 0, []
+        return 0, 0, [], []
 
     queue = await load(vault)
     if not queue:
-        return 0, 0, []
+        return 0, 0, [], []
 
     done, waiting, errors, events = 0, 0, [], []
     rest: list[dict] = []
