@@ -49,6 +49,7 @@ export function Files() {
   const [dragging, setDragging] = useState(false);
   const [subiendo, setSubiendo] = useState<string[]>([]);
   const [aviso, setAviso] = useState("");
+  const [menu, setMenu] = useState<FileRow | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const recargar = useCallback(async () => {
@@ -104,6 +105,17 @@ export function Files() {
       ? `No se pudo subir — ${fallos.join(" · ")}`
       : `${lista.length} archivo(s) en cola. El agente los escanea y los procesa.`);
     recargar();
+  }
+
+  async function mover(f: FileRow, destino: string) {
+    setMenu(null);
+    try {
+      await api.moveFile(f.sha256, destino);
+      setAviso(`${f.filename} → /${destino || "documentos"}`);
+      recargar();
+    } catch {
+      setAviso(`No se pudo mover ${f.filename}.`);
+    }
   }
 
   async function nuevaCarpeta() {
@@ -183,8 +195,9 @@ export function Files() {
           <div className="fm-grid">
             {visibles.map((f) => (
               <div key={f.sha256} className="fm-item"
-                   onClick={() => f.drive_link && setOpen(f)}
-                   title={`${f.filename}\n${f.mime}\nVirusTotal: ${f.vt_status} (${f.vt_detections})`}>
+                   onClick={() => setOpen(f)}
+                   onContextMenu={(ev) => { ev.preventDefault(); setMenu(f); }}
+                   title={`${f.filename}\nClic para abrir · clic derecho para mover`}>
                 <div className="fm-ico">{iconFor(f.filename, f.decision)}</div>
                 <div className="fm-name">{f.filename}</div>
                 <div className="fm-meta">
@@ -196,6 +209,22 @@ export function Files() {
           </div>
         </div>
       </div>
+
+      {menu && (
+        <div className="fm-menu-backdrop" onClick={() => setMenu(null)}>
+          <div className="fm-menu" onClick={(e) => e.stopPropagation()}>
+            <div className="fm-menu-h">{menu.filename}</div>
+            <div className="fm-menu-i" onClick={() => { setOpen(menu); setMenu(null); }}>Abrir</div>
+            <div className="fm-menu-sep">Mover a</div>
+            <div className={`fm-menu-i ${!menu.collection ? "on" : ""}`}
+                 onClick={() => mover(menu, "")}>📁 documentos</div>
+            {todas.map((c) => (
+              <div key={c} className={`fm-menu-i ${menu.collection === c ? "on" : ""}`}
+                   onClick={() => mover(menu, c)}>📂 {c}</div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {dragging && <div className="fm-overlay">Suelta para subir a /{cwd || "documentos"}</div>}
       {open && <FileViewer file={open} onClose={() => setOpen(null)} />}

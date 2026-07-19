@@ -11,11 +11,13 @@
   "dependencies": {
     "d3": "^7.9.0",
     "firebase": "^11.1.0",
+    "mammoth": "^1.12.0",
     "mermaid": "^11.16.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

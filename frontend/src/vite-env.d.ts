@@ -8,3 +8,11 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// mammoth no publica tipos para su build de navegador (el que no arrastra Node).
+declare module "mammoth/mammoth.browser" {
+  const mammoth: {
+    convertToHtml(input: { arrayBuffer: ArrayBuffer }): Promise<{ value: string; messages: unknown[] }>;
+  };
+  export default mammoth;
+}

@@ -124,6 +124,15 @@ export const api = {
   vault: (path: string) => req<VaultResp>(`/api/vault/${path}`),
   writeVault,
   queue: () => req<{ queue: QueueItem[] }>("/api/queue"),
+  moveFile: async (sha256: string, folder: string) => {
+    const resp = await fetch(`${API_BASE}/api/file/move`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ sha256, folder }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+  },
   // La subida no procesa nada aquí: deja el archivo en espera y despierta al
   // agente, que es quien tiene VirusTotal y los extractores.
   upload: async (file: File, folder: string) => {

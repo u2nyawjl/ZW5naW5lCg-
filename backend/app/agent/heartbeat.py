@@ -175,7 +175,8 @@ async def beat() -> int:
             storage = StorageClient(settings.firebase_service_account_b64,
                                     settings.firebase_storage_bucket)
             hechos, esperando, errs, evs = await uploads.drain(
-                settings, vault=vault, google=google, vt_client=vt, storage=storage)
+                settings, vault=vault, google=google, vt_client=vt, storage=storage,
+                brain=brain)
             pulse.events.extend(evs)
             pulse.errors.extend(errs)
             if hechos or esperando:

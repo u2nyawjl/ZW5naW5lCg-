@@ -836,6 +836,59 @@ async def upload(file: UploadFile = File(...), folder: str = Form(default=""),
     return {"ok": True, "sha256": sha256, "queued": len(queue), "folder": folder}
 
 
+@app.post("/api/file/move")
+async def move_file(request: Request, authorization: str | None = Header(default=None)):
+    """Cambia un archivo de carpeta.
+
+    Hay que tocar TRES cosas o el agente se confunde: la fila del manifiesto, la
+    cabecera `coleccion:` de la nota —que es lo que el agente lee para saber de
+    qué semestre es el material— y la ruta de la nota. Cambiar solo el manifiesto
+    dejaría al agente creyendo que sigue donde estaba.
+    """
+    require_dashboard(authorization)
+    body = await request.json()
+    sha256, destino = str(body.get("sha256", "")), str(body.get("folder", ""))
+    destino = re.sub(r"[^A-Za-z0-9 _\-]", "", destino).strip()[:80]
+    if not sha256:
+        raise HTTPException(status_code=400, detail="Falta sha256")
+
+    raw = await _vault_read("files/manifest.json")
+    try:
+        entries = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Manifiesto ilegible")
+
+    fila = next((e for e in entries if e.get("sha256") == sha256), None)
+    if not fila:
+        raise HTTPException(status_code=404, detail="Ese archivo no está en el manifiesto")
+
+    viejo = fila.get("note_path", "")
+    nombre = viejo.split("/")[-1] if viejo else f"{sha256[:12]}.md"
+    nuevo_path = (f"documents/{destino}/" if destino else "documents/") + nombre
+
+    if viejo:
+        nota = await _vault_read(viejo)
+        if nota:
+            if re.search(r"^coleccion:.*$", nota, flags=re.M):
+                nota = re.sub(r"^coleccion:.*$", f"coleccion: {destino}" if destino
+                              else "coleccion:", nota, count=1, flags=re.M)
+            elif destino:
+                nota = re.sub(r"^(---\n)", f"\\1coleccion: {destino}\n", nota, count=1)
+            if nuevo_path != viejo:
+                await _vault_write(nuevo_path, nota, f"files: mueve {nombre} a /{destino}")
+                await _vault_delete(viejo, f"files: retira {viejo}")
+            else:
+                await _vault_write(viejo, nota, f"files: recoloca {nombre}")
+
+    fila["collection"] = destino
+    fila["note_path"] = nuevo_path
+    if not await _vault_write("files/manifest.json",
+                              json.dumps(entries, ensure_ascii=False, indent=2),
+                              f"files: {fila.get('filename', sha256[:12])} → /{destino}"):
+        raise HTTPException(status_code=502, detail="No se pudo actualizar el manifiesto")
+    return {"ok": True, "folder": destino, "note_path": nuevo_path}
+
+
 @app.get("/api/queue")
 async def queue_status(authorization: str | None = Header(default=None)):
     """Qué hay esperando a VirusTotal, para que el dashboard lo muestre."""
@@ -1152,7 +1205,7 @@ async def latex(request: Request, authorization: str | None = Header(default=Non
 
 REAL_ROUTES = {"/", "/auth", "/wake", "/gmail", "/health", "/api/status", "/api/logs",
                "/api/tasks", "/api/calendar", "/api/file", "/api/services", "/api/chat",
-               "/api/models", "/api/latex", "/api/conv", "/api/upload", "/api/queue"}
+               "/api/models", "/api/latex", "/api/conv", "/api/upload", "/api/queue", "/api/file/move"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta. Ojo con

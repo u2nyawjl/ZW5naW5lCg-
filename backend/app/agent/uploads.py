@@ -53,7 +53,7 @@ async def save(vault: GitHubClient, queue: list[dict], message: str) -> None:
     await vault.write_note(QUEUE_PATH, json.dumps(queue, ensure_ascii=False, indent=2), message)
 
 
-def _render_note(report, item: dict) -> str:
+def _render_note(report, item: dict, resumen: str = "") -> str:
     """El documento fusionado: qué es, qué dijo VirusTotal y qué sacó Unstructured.
 
     Todo en una nota para que el agente lo encuentre buscando y lo lea de una vez,
@@ -64,7 +64,10 @@ def _render_note(report, item: dict) -> str:
     head = [
         "---", "tipo: documento", f"archivo: {report.filename}",
         f"sha256: {report.sha256}", f"mime: {report.mime}",
-        f"origen: subida manual{f' · {carpeta}' if carpeta else ''}",
+        # `origen` dice CÓMO llegó; `coleccion`, dónde vive. Si origen repitiera la
+        # carpeta, al mover el archivo quedarían dos carpetas distintas en la misma
+        # nota — y de ese dato depende que no mezcle semestres.
+        "origen: subida manual",
         f"subido: {item.get('uploaded_at', '')}",
         f"veredicto: {report.decision}",
     ]
@@ -85,6 +88,9 @@ def _render_note(report, item: dict) -> str:
     if report.warnings:
         body += ["", "### Avisos", ""] + [f"- ⚠️ {w}" for w in report.warnings]
 
+    if resumen:
+        body += ["", "## Resumen", "", resumen]
+
     body += ["", "## Contenido extraído", ""]
     if report.text:
         body.append(report.text)
@@ -93,7 +99,8 @@ def _render_note(report, item: dict) -> str:
     return "\n".join(head + body)
 
 
-async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: StorageClient):
+async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: StorageClient,
+                brain=None):
     """Procesa lo que haya en cola. Devuelve (procesados, en_espera, errores)."""
     if not storage.configured:
         return 0, 0, []
@@ -171,14 +178,29 @@ async def drain(settings, *, vault: GitHubClient, google, vt_client, storage: St
                 "file.blocked", f"Subida bloqueada: {item['filename']} — {report.reason}",
                 level="alert", vt=str(report.virustotal.status)))
 
+        # El resumen lo escribe la IA sobre el texto ya extraído. Es lo que hace
+        # que una plantilla de 12 páginas se pueda mirar de un vistazo, y la base
+        # sobre la que luego se rellenará una nueva.
+        resumen = ""
+        if brain and report.text and report.decision is Decision.ALLOW:
+            try:
+                resumen = await brain.summarize(
+                    report.text[:6000],
+                    "Resume este documento en 3-5 puntos. Di qué ES (plantilla, informe, "
+                    "rúbrica…) y qué secciones o campos pide rellenar.")
+            except Exception as exc:
+                errors.append(f"resumen de {item['filename']}: {exc}")
+
         folder = item.get("folder", "").strip("/")
         note_path = (f"documents/{folder}/" if folder else "documents/") \
             + f"{report.sha256[:12]}-{_slug(item['filename'])}.md"
-        await vault.write_note(note_path, _render_note(report, item),
+        await vault.write_note(note_path, _render_note(report, item, resumen),
                                f"docs: {item['filename']} (subida)")
         await manifest.add(vault, {
             **manifest.entry_from_report(report, drive_link, drive_id, note_path),
             "collection": folder,
+            "summary": resumen,
+            "size_bytes": report.size_bytes,
         })
         await storage.delete(blob)
         done += 1
