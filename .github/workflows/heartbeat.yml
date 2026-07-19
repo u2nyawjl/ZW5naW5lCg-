@@ -1,19 +1,25 @@
 name: heartbeat
 
 on:
-  schedule:
-    # Cada hora. SIEMPRE UTC. Ya NO es el poller del correo —de eso se encarga el
-    # timbre de Gmail (Pub/Sub → Vercel → repository_dispatch)—, sino:
-    #   1. el despertador de los recordatorios: revisa la agenda y avisa día antes
-    #      / inminente. La lógica usa umbrales (≤24h, ≤2h), no instantes.
-    #   2. la renovación del watch de Gmail, que caduca a los 7 días.
-    #   3. la red de seguridad: si Pub/Sub pierde un aviso, el correo entra igual.
-    #
-    # Por qué una hora y no más: la ventana de "inminente" son 2 h, así que con un
-    # hueco de 1 h siempre cae un latido dentro y sobra margen para los retrasos
-    # del cron de GitHub. Cada 2 h un evento a exactamente 2 h vista podría tener
-    # su siguiente latido justo a la hora de inicio y quedarse sin aviso.
-    - cron: "0 * * * *"
+  # ⏸️ CRON PAUSADO el 2026-07-19. Google marcó una posible infracción de su
+  # Política de Uso Aceptable en los proyectos y deshabilitó el cliente OAuth y
+  # la service account. Cada latido intentaba autenticarse contra Google y
+  # fallaba; acumular intentos fallidos mientras te revisan solo refuerza la
+  # señal que te marcó. Mientras tanto el latido se dispara a mano desde Actions.
+  #
+  # PARA REACTIVAR al resolverse la apelación: descomenta las dos líneas.
+  #
+  # Cada hora, SIEMPRE UTC. No es el poller del correo —de eso se encarga el
+  # timbre de Gmail—, sino (1) el despertador de los recordatorios, (2) la
+  # renovación del watch de Gmail, que caduca a los 7 días, y (3) la red de
+  # seguridad si Pub/Sub pierde un aviso.
+  #
+  # Por qué una hora y no más: la ventana de "inminente" son 2 h, así que con un
+  # hueco de 1 h siempre cae un latido dentro y sobra margen para los retrasos
+  # del cron de GitHub.
+  #
+  # schedule:
+  #   - cron: "0 * * * *"
 
   # El despertar instantáneo: Gmail avisa → Vercel → aquí. Segundos, no una hora.
   repository_dispatch:
