@@ -7,7 +7,9 @@ import { NoteView } from "./NoteView";
 // Caché de notas ya leídas (contenido + hash) para la sesión: abrir una nota es instantáneo.
 const noteCache = new Map<string, { content: string; hash: string }>();
 
-const ROOTS = ["system", "inbox", "documents", "heartbeat", "timeline"];
+// /notes es el bloc del agente: lo que escribe por el shell cuando Nico se lo dicta.
+// Si falta aquí, el agente escribe y nadie lo ve nunca.
+const ROOTS = ["system", "inbox", "documents", "notes", "heartbeat", "timeline"];
 
 type Tree = Record<string, VaultEntry[]>;
 
