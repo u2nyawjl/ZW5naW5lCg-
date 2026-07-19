@@ -218,6 +218,66 @@ a:hover { color: #9df0ff; }
 .markdown hr { border: none; margin: 16px 0; }
 .markdown ul, .markdown ol { padding-left: 22px; }
 
+/* ── Gestor de archivos (estilo Thunar): barra de carpetas + rejilla ── */
+.fm { position: relative; }
+.fm-path { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.fm-actions { margin-left: auto; display: flex; gap: 16px; }
+.fm-body { display: grid; grid-template-columns: 190px 1fr; height: 100%; min-height: 0; }
+.fm-side {
+  border-right: 1px solid var(--border); padding: 14px 10px; overflow-y: auto;
+}
+.fm-dir {
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fm-dir.sub { padding-left: 20px; }
+.fm-dir:hover { color: var(--text); background: rgba(255, 255, 255, 0.03); }
+.fm-dir.on { color: var(--cyan); background: rgba(120, 220, 255, 0.07); }
+.fm-hint { padding: 8px 10px; font-size: 11px; color: var(--faint); }
+
+.fm-main { padding: 16px 20px; overflow-y: auto; min-height: 0; }
+.fm-grid {
+  display: grid; gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+}
+.fm-item {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 8px; border-radius: 10px; cursor: pointer;
+  border: 1px solid transparent; text-align: center;
+}
+.fm-item:hover { background: rgba(255, 255, 255, 0.04); border-color: var(--border-lit); }
+.fm-ico { font-size: 34px; line-height: 1; }
+.fm-name {
+  font-size: 11.5px; word-break: break-word; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fm-meta {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; color: var(--faint); font-family: var(--mono);
+}
+.fm-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.fm-dot.ok { background: #46d98a; }
+.fm-dot.warn { background: #e2b13c; }
+.fm-dot.bad { background: #ff6b6b; }
+
+.fm-aviso, .fm-queue {
+  margin-bottom: 14px; padding: 10px 14px; border-radius: 10px; font-size: 11.5px;
+  border: 1px solid var(--border-lit); background: rgba(255, 255, 255, 0.02);
+}
+.fm-queue-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fm-chip {
+  padding: 3px 9px; border-radius: 999px; font-size: 10.5px; color: var(--muted);
+  border: 1px solid var(--border-lit); font-family: var(--mono);
+}
+.fm-drop-hint { border: 1px dashed var(--border-lit); border-radius: 12px; padding: 40px 20px; }
+
+/* La capa de "suelta aquí" solo aparece mientras se arrastra encima. */
+.fm-overlay {
+  position: absolute; inset: 0; z-index: 20; display: grid; place-items: center;
+  background: rgba(10, 14, 30, 0.82); border: 2px dashed var(--cyan); border-radius: 14px;
+  color: var(--cyan); font-size: 14px; letter-spacing: 0.5px; pointer-events: none;
+}
+
 /* Monitor vital: selector de ventana (día/semana/mes) sobre el electro. */
 .hb-ranges { display: flex; gap: 10px; margin: 0 0 8px; }
 .hb-range {

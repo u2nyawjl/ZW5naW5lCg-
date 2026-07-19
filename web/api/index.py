@@ -15,6 +15,7 @@ Cualquier ruta fuera de esa lista se considera un sondeo y se reporta. Ver abajo
 """
 
 import base64
+import hashlib
 import hmac
 import json
 import math
@@ -34,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _shell  # noqa: E402
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -67,6 +68,10 @@ GOOGLE_OAUTH_REFRESH_TOKEN = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN", "")
 GOOGLE_CALENDAR_ID = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
 
 FIREBASE_SERVICE_ACCOUNT_B64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "")
+# Donde esperan los archivos subidos hasta que VirusTotal los mire. Sin esto no
+# hay cola posible y la subida se rechaza: nada sin escanear se queda guardado.
+FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "")
+MAX_UPLOAD_MB = int(os.environ.get("MAX_FILE_SIZE_MB", "25"))
 
 GITHUB_MODELS_TOKEN = os.environ.get("MODELS_TOKEN", "") or os.environ.get("GITHUB_MODELS_TOKEN", "")
 MODELS_BASE = os.environ.get("GITHUB_MODELS_BASE_URL", "https://models.github.ai/inference")
@@ -744,6 +749,104 @@ async def _chat_context() -> str:
     return "\n".join(lines)
 
 
+# ── Subida de archivos: recibir y encolar, nunca procesar ─────────────────
+#
+# El gateway NO escanea ni extrae nada: eso vive en el latido, que tiene el
+# pipeline entero y no tiene límite de tiempo. Aquí solo se guardan los bytes en
+# Firebase Storage y se anota la entrada en la cola.
+#
+# La regla del proyecto es que nada sin escanear sube a Drive, y Vercel no guarda
+# nada entre peticiones: por eso hace falta el bucket. Sin él, se rechaza.
+
+STORAGE_UPLOAD = "https://storage.googleapis.com/upload/storage/v1"
+QUEUE_PATH = "files/queue.json"
+
+
+async def _google_sa_token(scope: str) -> str | None:
+    """Token de la service account de Firebase para el scope pedido."""
+    if not FIREBASE_SERVICE_ACCOUNT_B64:
+        return None
+    sa = json.loads(base64.b64decode(FIREBASE_SERVICE_ACCOUNT_B64))
+    now = int(time.time())
+    header = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    claim = _b64url(json.dumps({"iss": sa["client_email"], "scope": scope,
+                                "aud": GOOGLE_TOKEN_URL, "iat": now, "exp": now + 3600}).encode())
+    si = f"{header}.{claim}".encode()
+    key = serialization.load_pem_private_key(sa["private_key"].encode(), password=None)
+    jwt = f"{header}.{claim}.{_b64url(key.sign(si, padding.PKCS1v15(), hashes.SHA256()))}"
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        tok = await c.post(GOOGLE_TOKEN_URL, data={
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": jwt})
+        return tok.json()["access_token"] if tok.status_code == 200 else None
+
+
+@app.post("/api/upload")
+async def upload(file: UploadFile = File(...), folder: str = Form(default=""),
+                 authorization: str | None = Header(default=None)):
+    require_dashboard(authorization)
+    if not FIREBASE_STORAGE_BUCKET:
+        raise HTTPException(status_code=503,
+                            detail="Sin bucket de espera: no se aceptan subidas sin escanear")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    if len(content) > MAX_UPLOAD_MB * 1_048_576:
+        raise HTTPException(status_code=413,
+                            detail=f"Máximo {MAX_UPLOAD_MB} MB (este pesa "
+                                   f"{len(content) / 1_048_576:.1f} MB)")
+
+    # La carpeta la elige Nico y acaba siendo una ruta en la bóveda: se limpia.
+    folder = re.sub(r"[^A-Za-z0-9 _\-/]", "", folder).strip("/ ")[:80]
+    if ".." in folder:
+        raise HTTPException(status_code=400, detail="Carpeta no válida")
+
+    sha256 = hashlib.sha256(content).hexdigest()
+    token = await _google_sa_token("https://www.googleapis.com/auth/devstorage.read_write")
+    if not token:
+        raise HTTPException(status_code=502, detail="No se pudo autenticar contra Storage")
+
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        put = await c.post(
+            f"{STORAGE_UPLOAD}/b/{FIREBASE_STORAGE_BUCKET}/o",
+            params={"uploadType": "media", "name": f"pending/{sha256}"},
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": file.content_type or "application/octet-stream"},
+            content=content)
+        if put.status_code >= 300:
+            raise HTTPException(status_code=502, detail=f"Storage: {put.status_code}")
+
+    raw = await _vault_read(QUEUE_PATH)
+    try:
+        queue = json.loads(raw) if raw else []
+    except json.JSONDecodeError:
+        queue = []
+    # Mismo archivo dos veces = una sola entrada: el hash es la clave.
+    queue = [q for q in queue if q.get("sha256") != sha256]
+    queue.append({"sha256": sha256, "filename": file.filename or sha256[:12],
+                  "folder": folder, "size": len(content),
+                  "uploaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                  "attempts": 0})
+    if not await _vault_write(QUEUE_PATH, json.dumps(queue, ensure_ascii=False, indent=2),
+                              f"files: encola {file.filename}"):
+        raise HTTPException(status_code=502, detail="No se pudo encolar en la bóveda")
+
+    # Despertar al agente: sin esto el archivo esperaría al próximo cron.
+    await dispatch("wake", {"source": "upload", "reason": f"archivo {file.filename}"})
+    return {"ok": True, "sha256": sha256, "queued": len(queue), "folder": folder}
+
+
+@app.get("/api/queue")
+async def queue_status(authorization: str | None = Header(default=None)):
+    """Qué hay esperando a VirusTotal, para que el dashboard lo muestre."""
+    require_dashboard(authorization)
+    raw = await _vault_read(QUEUE_PATH)
+    try:
+        return {"queue": json.loads(raw) if raw else []}
+    except json.JSONDecodeError:
+        return {"queue": []}
+
+
 # ── Uso de tokens (Firestore, escrito también por el heartbeat) ────────────
 
 async def _fs_request(method: str, suffix: str, json_body: dict | None = None):
@@ -1049,7 +1152,7 @@ async def latex(request: Request, authorization: str | None = Header(default=Non
 
 REAL_ROUTES = {"/", "/auth", "/wake", "/gmail", "/health", "/api/status", "/api/logs",
                "/api/tasks", "/api/calendar", "/api/file", "/api/services", "/api/chat",
-               "/api/models", "/api/latex", "/api/conv"}
+               "/api/models", "/api/latex", "/api/conv", "/api/upload", "/api/queue"}
 REAL_PREFIXES = ("/api/vault/",)
 
 # Ruido de fondo de cualquier navegador o crawler: no merece una alerta. Ojo con

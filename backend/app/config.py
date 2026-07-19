@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # --- Firestore ---
     firebase_project_id: str = ""
     firebase_service_account_b64: str = ""    # el JSON del service account, en base64
+    # Bucket donde esperan los archivos subidos a mano hasta que VirusTotal los
+    # mire. Vacío = no hay cola: la subida se rechaza en vez de guardarse sin escanear.
+    firebase_storage_bucket: str = ""
 
     # --- Correo ---
     gmail_address: str = ""

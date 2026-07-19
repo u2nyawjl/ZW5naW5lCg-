@@ -96,6 +96,9 @@ jobs:
           # procesa el correo y escribe la bóveda pero NUNCA refleja nada al panel.
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SERVICE_ACCOUNT_B64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_B64 }}
+          # Sin esto el latido no vacía la cola de subidas: los archivos que
+          # arrastre Nico al dashboard se quedan esperando indefinidamente.
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
 
           # Unstructured (opcional): lectura amplia de documentos. Si el secret no existe,
           # la clave queda vacía y el pipeline usa solo los extractores locales.

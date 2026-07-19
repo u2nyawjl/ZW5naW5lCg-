@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from app.agent import reminders
+from app.agent import reminders, uploads
 from app.agent.brain import Brain
 from app.agent.intake import IntakeResult, process_inbox
 from app.comms.email import EmailClient
@@ -28,6 +28,7 @@ from app.config import get_settings
 from app.core.events import Level, log_event
 from app.integrations.firestore import FirestoreClient
 from app.integrations.github import GitHubClient
+from app.integrations.storage import StorageClient
 from app.integrations.google import GoogleClient
 from app.security.virustotal import VirusTotalClient
 from app.vault import embed, manifest, people, timeline, vitals
@@ -166,6 +167,22 @@ async def beat() -> int:
         except Exception as exc:
             pulse.errors.append(f"gmail watch: {type(exc).__name__}: {exc}")
             print(f"❌ Gmail    · {exc}")
+
+    # 2c. Cola de subidas manuales. Va antes de los recordatorios para que un
+    # archivo arrastrado hace un minuto ya esté procesado en este mismo latido.
+    if settings.firebase_storage_bucket and settings.firebase_service_account_b64:
+        try:
+            storage = StorageClient(settings.firebase_service_account_b64,
+                                    settings.firebase_storage_bucket)
+            hechos, esperando, errs, evs = await uploads.drain(
+                settings, vault=vault, google=google, vt_client=vt, storage=storage)
+            pulse.events.extend(evs)
+            pulse.errors.extend(errs)
+            if hechos or esperando:
+                print(f"✅ Subidas  · {hechos} procesada(s), {esperando} esperando a VirusTotal")
+        except Exception as exc:
+            pulse.errors.append(f"subidas: {type(exc).__name__}: {exc}")
+            print(f"❌ Subidas  · {exc}")
 
     # 3. Recordatorios
     try:

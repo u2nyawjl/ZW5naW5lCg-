@@ -39,6 +39,14 @@ export interface FileRow {
   filename: string; sha256: string; mime: string; vt_status: string;
   vt_detections: string; decision: string; drive_link: string;
   drive_id?: string; note_path: string;
+  collection?: string;      // la carpeta donde lo dejó Nico
+  size_bytes?: number;
+  ingested_at?: string;
+}
+
+export interface QueueItem {
+  sha256: string; filename: string; folder: string; size: number;
+  uploaded_at: string; attempts: number; last_error?: string;
 }
 
 export async function fetchFileBlob(driveId: string): Promise<Blob> {
@@ -115,6 +123,24 @@ export const api = {
   services: () => req<{ services: ServiceRow[] }>("/api/services"),
   vault: (path: string) => req<VaultResp>(`/api/vault/${path}`),
   writeVault,
+  queue: () => req<{ queue: QueueItem[] }>("/api/queue"),
+  // La subida no procesa nada aquí: deja el archivo en espera y despierta al
+  // agente, que es quien tiene VirusTotal y los extractores.
+  upload: async (file: File, folder: string) => {
+    const body = new FormData();
+    body.append("file", file);
+    body.append("folder", folder);
+    const resp = await fetch(`${API_BASE}/api/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getToken()}` },
+      body,
+    });
+    if (!resp.ok) {
+      const detail = await resp.json().catch(() => ({}));
+      throw new Error(detail?.detail || `HTTP ${resp.status}`);
+    }
+    return resp.json() as Promise<{ ok: boolean; sha256: string; queued: number }>;
+  },
   files: async (): Promise<FileRow[]> => {
     const r = await req<VaultResp>("/api/vault/files/manifest.json");
     if (r.type !== "file") return [];
