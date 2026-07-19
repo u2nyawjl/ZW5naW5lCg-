@@ -42,6 +42,13 @@ async def add(vault: GitHubClient, entry: dict) -> list[dict]:
     return merged
 
 
+async def save(vault: GitHubClient, entries: list[dict], message: str) -> None:
+    """Reescribe el manifiesto entero. Lo usa el mantenimiento, que actualiza
+    varias filas de una vez y no quiere un commit por cada una."""
+    await vault.write_note(
+        MANIFEST_PATH, json.dumps(entries, ensure_ascii=False, indent=2), message)
+
+
 def entry_from_report(report, drive_link: str, drive_id: str, note_path: str) -> dict:
     """Traduce un FileReport del pipeline a una fila del manifiesto."""
     return {

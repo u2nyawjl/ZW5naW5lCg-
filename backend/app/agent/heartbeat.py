@@ -4,9 +4,10 @@ Cada tick (cron cada 30 min, o wake por correo urgente, o disparo manual):
   1. Lee la misión y el estado actual de la bóveda.
   2. Ingesta de correo: clasifica lo nuevo con el LLM y guarda lo relevante.
   3. Recordatorios: avisa de lo que entra en ventana (día antes / inminente).
-  4. Vuelca los eventos al timeline durable de la bóveda.
-  5. Anota sus constantes vitales (una fila por latido en heartbeat/heart.beat).
-  6. Avisa al dueño SOLO si hay algo que amerite.
+  4. Mantenimiento: resúmenes que faltan, estado, notas, memorias, agenda.
+  5. Vuelca los eventos al timeline durable de la bóveda.
+  6. Anota sus constantes vitales (una fila por latido en heartbeat/heart.beat).
+  7. Avisa al dueño SOLO si hay algo que amerite.
 
 Cada fase falla por su cuenta: que Calendar esté caído no debe dejar sin ingesta al correo.
 
@@ -20,7 +21,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from app.agent import reminders, uploads
+from app.agent import maintenance, reminders, uploads
 from app.agent.brain import Brain
 from app.agent.intake import IntakeResult, process_inbox
 from app.comms.email import EmailClient
@@ -211,6 +212,33 @@ async def beat() -> int:
     except Exception as exc:
         pulse.errors.append(f"índice: {type(exc).__name__}: {exc}")
         print(f"❌ Índice   · {exc}")
+
+    # 3b. Mantenimiento. El latido no solo reacciona al correo: también repasa lo
+    # que quedó a medias y decide si hay algo que anotar. Va después de los
+    # recordatorios para que la pasada vea lo que acaba de pasar en ESTE latido.
+    try:
+        hechos, errs = await maintenance.backfill_summaries(vault, brain)
+        pulse.errors.extend(errs)
+        if hechos:
+            pulse.events.append(timeline.event(
+                "maintenance.summary", f"Resúmenes escritos: {hechos}"))
+            print(f"✅ Resúmenes· {hechos} archivo(s) al día")
+    except Exception as exc:
+        pulse.errors.append(f"resúmenes: {type(exc).__name__}: {exc}")
+
+    try:
+        hubo = bool(pulse.intake.relevant or pulse.intake.files_stored or pulse.reminders_sent)
+        acciones, errs, evs = await maintenance.run(
+            vault, brain, google, hubo_novedades=hubo, eventos_recientes=pulse.events)
+        pulse.events.extend(evs)
+        pulse.errors.extend(errs)
+        if acciones:
+            pulse.events.append(timeline.event(
+                "maintenance.run", "Mantenimiento: " + ", ".join(acciones)))
+            print(f"✅ Manten.  · {len(acciones)} acción(es): {', '.join(acciones)}")
+    except Exception as exc:
+        pulse.errors.append(f"mantenimiento: {type(exc).__name__}: {exc}")
+        print(f"❌ Manten.  · {exc}")
 
     # 4. Timeline durable + resumen del latido
     pulse.events.append(timeline.event(
