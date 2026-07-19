@@ -222,6 +222,38 @@ async def test_nucleo_de_memoria_es_intocable(cmd):
 
 
 @pytest.mark.asyncio
+async def test_echo_interpreta_saltos_de_linea():
+    """El modelo escribe cabeceras con \\n; si no se interpretan, el recuerdo
+    entero queda en una línea y la procedencia deja de ser legible."""
+    sh = make_shell()
+    await sh.run(r'echo "---\ntipo: proyecto\n---\nRodrigo Alfaro" > memory/g.md')
+    assert sh.store["memory/g.md"].splitlines()[:3] == ["---", "tipo: proyecto", "---"]
+
+
+@pytest.mark.asyncio
+async def test_echo_acepta_el_flag_e():
+    sh = make_shell()
+    await sh.run(r'echo -e "uno\ndos" > notes/e.md')
+    assert sh.store["notes/e.md"].splitlines() == ["uno", "dos"]
+
+
+@pytest.mark.asyncio
+async def test_json_invalido_no_se_escribe():
+    """Interpretar \\n puede partir una cadena JSON: mejor fallar que corromper."""
+    sh = make_shell()
+    out = await sh.run(r'echo "{\"a\": \"uno\ndos\"}" > notes/x.json')
+    assert "no es JSON válido" in out
+    assert "notes/x.json" not in sh.store
+
+
+@pytest.mark.asyncio
+async def test_json_valido_si_se_escribe():
+    sh = make_shell()
+    out = await sh.run('echo \'{"a": 1}\' > notes/ok.json')
+    assert "escrito /notes/ok.json" in out
+
+
+@pytest.mark.asyncio
 async def test_memoria_normal_si_es_escribible():
     sh = make_shell()
     out = await sh.run('echo "entrega movida al 5" > memory/entrega.md')

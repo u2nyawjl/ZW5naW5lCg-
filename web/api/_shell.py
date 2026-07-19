@@ -18,6 +18,7 @@ desplegar. El gateway le inyecta el acceso real por callbacks.
 
 import base64
 import fnmatch
+import json
 import re
 import shlex
 from array import array
@@ -278,6 +279,15 @@ class Shell:
             if current:
                 content = current.rstrip("\n") + "\n" + content
         body = content.rstrip("\n") + "\n"
+        # echo interpreta \n, y eso puede partir una cadena de un JSON por la mitad.
+        # Mejor negarse en voz alta que dejar un archivo corrupto que solo se
+        # descubre el día que alguien lo lee.
+        if path.endswith(".json"):
+            try:
+                json.loads(body)
+            except json.JSONDecodeError as exc:
+                return (f"sh: {target}: no es JSON válido ({exc.msg}, línea {exc.lineno}). "
+                        f"No se escribió nada.")
         ok = await self._write(path, body, f"chat: escribe {path}")
         self._invalidate()
         return f"escrito /{path} ({len(body)} bytes)" if ok else f"sh: no se pudo escribir /{path}"
@@ -490,7 +500,17 @@ class Shell:
         return f"{lines} líneas  {len(content.split())} palabras  {len(content)} caracteres"
 
     async def _cmd_echo(self, args, stdin):
-        return " ".join(args)
+        """Interpreta \\n y \\t, como el echo de sh (y como espera el modelo).
+
+        Sin esto, `echo "---\\ntipo: x\\n---" > f.md` escribe los \\n como texto y
+        la cabecera del recuerdo queda en una sola línea inservible. Escribir varias
+        líneas es lo más común que hace el agente, así que tiene que salir a la
+        primera. `-e` se acepta y se ignora: es lo que el modelo suele teclear.
+        """
+        if args and args[0] == "-e":
+            args = args[1:]
+        return (" ".join(args)
+                .replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\"))
 
     async def _cmd_date(self, args, stdin):
         now = datetime.now(self._tz)
